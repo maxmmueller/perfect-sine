@@ -2,20 +2,23 @@ import { Point, PeriodValidationResult } from './types';
 
 /**
  * PeriodValidator verifies that a drawn curve satisfies the V-Model acceptance criteria:
- * it must span at least one harmonic cycle, with a natural drawing tolerance of ~0.88 - 0.90 periods.
+ * it must span at least one harmonic cycle (~0.88 - 0.90 tolerance) and possess a minimum
+ * physical amplitude (>= 25px) to prevent straight/flat lines from scoring as waves.
  */
 export class PeriodValidator {
   /**
-   * Analyzes baseline-aligned points and validates period coverage.
+   * Analyzes baseline-aligned points and validates period coverage and minimum amplitude.
    *
    * @param points Baseline-aligned points (x along baseline, y oscillating around offset).
    * @param overrideFrequency Optional known frequency omega (rad/px). If omitted, estimated from zero-crossings and extrema.
    * @param minCycles Minimum full cycles required (defaults to 0.88 = ~0.9 period tolerance).
+   * @param minAmplitude Minimum peak amplitude in pixels (defaults to 25px).
    */
   public static validate(
     points: readonly Point[],
     overrideFrequency?: number,
-    minCycles: number = 0.88
+    minCycles: number = 0.88,
+    minAmplitude: number = 25
   ): PeriodValidationResult {
     if (!points || points.length < 5) {
       return {
@@ -23,11 +26,12 @@ export class PeriodValidator {
         fullCycles: 0,
         totalSpan: 0,
         zeroCrossingsCount: 0,
+        amplitude: 0,
         message: 'Insufficient points to determine period.',
       };
     }
 
-    // Determine baseline span along x-axis and compute mean
+    // Determine baseline span along x-axis and compute bounding box
     let minX = points[0].x;
     let maxX = points[0].x;
     let minY = points[0].y;
@@ -50,18 +54,20 @@ export class PeriodValidator {
         fullCycles: 0,
         totalSpan: 0,
         zeroCrossingsCount: 0,
+        amplitude: 0,
         message: 'Curve has zero baseline span.',
       };
     }
 
     const amplitude = (maxY - minY) / 2;
-    if (amplitude < 1.0) {
+    if (amplitude < minAmplitude) {
       return {
         isValid: false,
         fullCycles: 0,
         totalSpan: 0,
         zeroCrossingsCount: 0,
-        message: 'Curve amplitude is too flat to form a wave.',
+        amplitude,
+        message: `Wave is too flat (amplitude ${amplitude.toFixed(0)}px). At least ${minAmplitude}px amplitude is required.`,
       };
     }
 
@@ -142,6 +148,7 @@ export class PeriodValidator {
           fullCycles: 0,
           totalSpan: 0,
           zeroCrossingsCount: crossings.length,
+          amplitude,
           message: 'Curve does not exhibit alternating harmonic peaks and troughs.',
         };
       }
@@ -151,7 +158,7 @@ export class PeriodValidator {
     const totalSpan = baselineSpan * omega;
     const fullCycles = totalSpan / (2 * Math.PI);
 
-    // Curve is valid if it covers at least minCycles (~0.88 - 0.90 tolerance) and exhibits harmonic alternation
+    // Curve is valid if it covers at least minCycles and exhibits harmonic alternation
     const hasAlternation = crossings.length >= 2 || (peaks.length >= 1 && troughs.length >= 1);
     const isValid = fullCycles >= minCycles && hasAlternation;
 
@@ -160,6 +167,7 @@ export class PeriodValidator {
       fullCycles,
       totalSpan,
       zeroCrossingsCount: crossings.length,
+      amplitude,
       message: isValid
         ? `Valid period: ${fullCycles.toFixed(2)} cycles.`
         : `Curve spans only ${fullCycles.toFixed(2)} cycles. At least ~0.9 full period is required.`,

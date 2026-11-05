@@ -23,6 +23,7 @@ export interface PeriodValidationResult {
   readonly fullCycles: number;
   readonly totalSpan: number;
   readonly zeroCrossingsCount: number;
+  readonly amplitude?: number;
   readonly message?: string;
 }
 

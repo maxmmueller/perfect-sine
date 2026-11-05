@@ -29,7 +29,7 @@ describe('PeriodValidator (Boundary Value & Period Verification)', () => {
     expect(res.message).toContain('zero baseline span');
   });
 
-  it('should reject a flat line with fewer than 2 crossings', () => {
+  it('should reject a flat line with fewer than 2 crossings or amplitude < minAmplitude', () => {
     const points: Point[] = [
       { x: 0, y: 50 },
       { x: 20, y: 50 },
@@ -39,17 +39,34 @@ describe('PeriodValidator (Boundary Value & Period Verification)', () => {
     ];
     const res = PeriodValidator.validate(points);
     expect(res.isValid).toBe(false);
-    expect(res.zeroCrossingsCount).toBeLessThan(2);
+    expect(res.message).toContain('Wave is too flat');
+  });
+
+  it('should reject a wave with valid periods but insufficient amplitude (< 25px)', () => {
+    // Generate 1 full period but with only 10px amplitude
+    const points: Point[] = [];
+    const L = 200;
+    for (let x = 0; x <= L; x += 2) {
+      points.push({
+        x,
+        y: 10 * Math.sin((x / L) * 2 * Math.PI) + 100,
+      });
+    }
+
+    const res = PeriodValidator.validate(points, undefined, 0.88, 25);
+    expect(res.isValid).toBe(false);
+    expect(res.amplitude).toBeCloseTo(10, 0);
+    expect(res.message).toContain('At least 25px amplitude is required');
   });
 
   it('should reject an incomplete wave spanning only 0.5 cycles (< 2pi)', () => {
-    // Generate half period: sin(x) from x = 0 to PI
+    // Generate half period: sin(x) from x = 0 to PI (amplitude 30px >= 25px threshold)
     const points: Point[] = [];
     const L = 100; // Half period length
     for (let x = 0; x <= L; x += 2) {
       points.push({
         x,
-        y: 40 * Math.sin((x / L) * Math.PI),
+        y: 60 * Math.sin((x / L) * Math.PI),
       });
     }
 
@@ -110,9 +127,9 @@ describe('PeriodValidator (Boundary Value & Period Verification)', () => {
   it('should use overrideFrequency when provided', () => {
     const points: Point[] = [
       { x: 0, y: 0 },
-      { x: 50, y: 20 },
+      { x: 50, y: 30 },
       { x: 100, y: 0 },
-      { x: 150, y: -20 },
+      { x: 150, y: -30 },
       { x: 200, y: 0 },
     ];
     // omega for period of 200 is 2*PI / 200 = 0.0314159

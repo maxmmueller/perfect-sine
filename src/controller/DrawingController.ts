@@ -91,12 +91,18 @@ export class DrawingController {
     const pt = this.getCanvasPoint(e);
     const added = this.strokeBuffer.addPoint(pt.x, pt.y);
     if (added) {
-      // Compute live dynamic fit and gradient coloring during active drawing
+      // Compute live dynamic fit and gradient coloring during active drawing (requires minimum amplitude)
       const points = this.strokeBuffer.getPoints();
       if (points.length >= 15) {
-        const liveFit = SineFitter.fit(points);
-        if (liveFit && liveFit.fullCycles >= 0.4) {
-          this.liveEvaluation = DeviationCalculator.evaluate(points, liveFit, 30);
+        const bbox = this.strokeBuffer.getBoundingBox();
+        const liveAmp = bbox ? bbox.height / 2 : 0;
+        if (liveAmp >= 15) {
+          const liveFit = SineFitter.fit(points);
+          if (liveFit && liveFit.amplitude >= 18 && liveFit.fullCycles >= 0.4) {
+            this.liveEvaluation = DeviationCalculator.evaluate(points, liveFit, 30);
+          }
+        } else {
+          this.liveEvaluation = null;
         }
       }
       this.render();
@@ -207,7 +213,9 @@ export class DrawingController {
       if (points.length > 0) {
         this.view.renderStroke(points, '#ff3366');
       }
-      this.view.renderBanner('Incomplete Wave', `${this.lastValidationMessage} Touch to retry`, true);
+      const isFlat = this.lastValidationMessage.toLowerCase().includes('flat') || this.lastValidationMessage.toLowerCase().includes('amplitude');
+      const title = isFlat ? 'Amplitude Too Flat' : 'Incomplete Wave';
+      this.view.renderBanner(title, `${this.lastValidationMessage} Touch anywhere to retry`, true);
     } else {
       // Initial active drawing or idle state
       if (points.length > 0) {
