@@ -21,6 +21,23 @@ function initializeApp(): void {
 
   // Expose controller for e2e test hooks if needed
   (window as unknown as { __appController: DrawingController }).__appController = controller;
+
+  // Start idle demo bot after brief initial delay if player hasn't interacted
+  let idleTimer: number | null = window.setTimeout(() => {
+    if (stateMachine.getState() === 'IDLE' && strokeBuffer.getLength() === 0 && !controller.isDemoPlaying()) {
+      controller.startDemo();
+    }
+  }, 1200);
+
+  const cancelIdleTimer = () => {
+    if (idleTimer !== null) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  };
+
+  window.addEventListener('pointerdown', cancelIdleTimer, { once: true });
+  window.addEventListener('keydown', cancelIdleTimer, { once: true });
 }
 
 window.addEventListener('DOMContentLoaded', initializeApp);
