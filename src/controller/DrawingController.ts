@@ -21,32 +21,44 @@ export class DrawingController {
   private coordinateFrame: CoordinateFrame | null = null;
   private pulseAnimationId: number | null = null;
   private pulseFactor = 0;
+  private readonly onEvaluationComplete?: (evaluation: StrokeEvaluation) => void;
+  private readonly onReset?: () => void;
 
   constructor(
     canvas: HTMLCanvasElement,
     view: CanvasView,
     stateMachine: GameStateMachine,
-    strokeBuffer: StrokeBuffer
+    strokeBuffer: StrokeBuffer,
+    options?: {
+      onEvaluationComplete?: (evaluation: StrokeEvaluation) => void;
+      onReset?: () => void;
+    }
   ) {
     this.canvas = canvas;
     this.view = view;
     this.stateMachine = stateMachine;
     this.strokeBuffer = strokeBuffer;
+    this.onEvaluationComplete = options?.onEvaluationComplete;
+    this.onReset = options?.onReset;
 
     this.bindEvents();
     this.render();
   }
 
   private bindEvents(): void {
-    window.addEventListener('resize', () => {
-      this.view.handleResize();
-      this.render();
-    });
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', () => {
+        this.view.handleResize();
+        this.render();
+      });
+    }
 
-    this.canvas.addEventListener('pointerdown', this.handlePointerDown.bind(this));
-    this.canvas.addEventListener('pointermove', this.handlePointerMove.bind(this));
-    this.canvas.addEventListener('pointerup', this.handlePointerUp.bind(this));
-    this.canvas.addEventListener('pointercancel', this.handlePointerUp.bind(this));
+    if (this.canvas && typeof this.canvas.addEventListener === 'function') {
+      this.canvas.addEventListener('pointerdown', this.handlePointerDown.bind(this));
+      this.canvas.addEventListener('pointermove', this.handlePointerMove.bind(this));
+      this.canvas.addEventListener('pointerup', this.handlePointerUp.bind(this));
+      this.canvas.addEventListener('pointercancel', this.handlePointerUp.bind(this));
+    }
   }
 
   private getCanvasPoint(e: PointerEvent): { x: number; y: number } {
@@ -66,18 +78,10 @@ export class DrawingController {
         this.coordinateFrame !== null &&
         HitboxDetector.isOriginHit(pt, this.coordinateFrame.origin);
 
-      this.stopPulseAnimation();
-      this.stateMachine.reset();
-      this.lastEvaluation = null;
-      this.liveEvaluation = null;
-      this.lastValidationMessage = null;
-      this.coordinateFrame = null;
-      this.strokeBuffer.clear();
-      this.canvas.style.cursor = 'default';
+      this.reset();
 
       if (hitOrigin) {
         // Explicit reset marker clicked: return to clean IDLE state without starting a new stroke immediately
-        this.render();
         return;
       }
       // Clicked outside reset target: seamlessly start new drawing attempt below
@@ -191,6 +195,25 @@ export class DrawingController {
     this.liveEvaluation = null;
     this.lastValidationMessage = null;
     this.startPulseAnimation();
+    if (this.onEvaluationComplete) {
+      this.onEvaluationComplete(this.lastEvaluation);
+    }
+  }
+
+  public reset(): void {
+    this.stopPulseAnimation();
+    if (this.stateMachine.getState() === 'LOCKED' || this.stateMachine.getState() === 'EVALUATING') {
+      this.stateMachine.reset();
+    }
+    this.strokeBuffer.clear();
+    this.lastEvaluation = null;
+    this.liveEvaluation = null;
+    this.lastValidationMessage = null;
+    this.coordinateFrame = null;
+    this.isPointerDown = false;
+    this.canvas.style.cursor = 'default';
+    this.onReset?.();
+    this.render();
   }
 
   public getLastEvaluation(): StrokeEvaluation | null {
