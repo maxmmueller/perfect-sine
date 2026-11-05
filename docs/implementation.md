@@ -49,9 +49,15 @@ Es soll sich stets am Software Engineering Guide orientiert werden (dies sind di
 * Es soll zudem eine Option geben, sich die Statistiken der Session ausgeben zu lassen (ähnlich wie bei einem Spotify Wrapped - also score, highscore der aktuellen session, anzahl der versuche, durchschnittlicher score, etc).
 * Highscore wird in cookie Gespeichert
 
-### 4. Score-Berechnung & A/B-Testing
-* Es soll ein Platzhalter für die tatsächliche Score-Berechnung existieren:
+### 4. Score-Berechnung & A/B/n-Testing
+* Es existiert eine modulare Schnittstelle (`IScoreStrategy`) nach dem GoF Strategy Pattern zur Score-Berechnung:
   * **Übergabewerte:**
-    * Die Messpunkte der Zeichnung (möglichst viele Messpunkte).
-    * Die Parameter der Funktion $a \cdot \sin(\omega x + b)$, welche den gezeichneten Sinus am besten abbildet.
-  * **A/B-Testing:** An dieser Stelle sollen verschiedene Arten zur Score-Berechnung implementiert werden, um anschließend über A/B-Testing die beste Variante auszuwählen (Testing).
+    * Die Messpunkte der Zeichnung (hochfrequente Koordinaten).
+    * Die gefitteten Parameter der Funktion $a \cdot \sin(\omega x + b) + c$ und die Ausrichtung $\theta$.
+  * **A/B/n-Testing:** Es werden 5 mathematisch distinkte Strategien implementiert und empirisch verglichen:
+    1. **Strategie 1 (RMSE / $L_2$):** Quadratische orthogonale Punkt-zu-Kurve-Abweichung (straft einzelne grobe Ausreißer stark ab).
+    2. **Strategie 2 (Integral-Fläche / $L_1$):** Mittlere absolute Flächenabweichung (MAE) zwischen Zeichnung und Sinuskurve (fehlertoleranter gegenüber Einzelwacklern).
+    3. **Strategie 3 (Harmonische Symmetrie & Isochronismus):** Skaleninvariante Schwingungsbewertung aus Berg/Tal-Amplitudenbalance, Halbperioden-Gleichförmigkeit und $R^2$.
+    4. **Strategie 4 (Tangenten- & Krümmungs-Ausrichtung):** Kosinus-Ähnlichkeit der Geschwindigkeits- und Tangentenvektoren ($\dot{y}$ Richtungsfluss und Glattheit).
+    5. **Strategie 5 (Chebyshev / $L_\infty$):** Strikter Worst-Case-Toleranz-Modus (basiert auf dem maximalen Einzelfehler).
+  * **Telemetrie:** Zuweisung und Scores werden im Session Store erfasst, um die Strategien im A/B/n-Verfahren empirisch zu bewerten.
