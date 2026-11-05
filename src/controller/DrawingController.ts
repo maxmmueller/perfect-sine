@@ -4,10 +4,11 @@ import { CanvasView } from '../view/CanvasView';
 import { SineFitter } from '../model/SineFitter';
 import { PeriodValidator } from '../model/PeriodValidator';
 import { TiltDetector } from '../model/TiltDetector';
-import { DeviationCalculator } from '../model/DeviationCalculator';
 import { CoordinateSystem, CoordinateFrame } from '../model/CoordinateSystem';
 import { HitboxDetector } from '../model/HitboxDetector';
 import { DemoBot, DemoWaveOptions } from '../model/DemoBot';
+import { IScoreStrategy } from '../model/scoring/IScoreStrategy';
+import { RmseScoreStrategy } from '../model/scoring/RmseScoreStrategy';
 import { StrokeEvaluation } from '../model/types';
 
 export class DrawingController {
@@ -15,6 +16,7 @@ export class DrawingController {
   private readonly view: CanvasView;
   private readonly stateMachine: GameStateMachine;
   private readonly strokeBuffer: StrokeBuffer;
+  private scoreStrategy: IScoreStrategy;
   private isPointerDown = false;
   private lastEvaluation: StrokeEvaluation | null = null;
   private liveEvaluation: StrokeEvaluation | null = null;
@@ -34,6 +36,7 @@ export class DrawingController {
     stateMachine: GameStateMachine,
     strokeBuffer: StrokeBuffer,
     options?: {
+      scoreStrategy?: IScoreStrategy;
       onEvaluationComplete?: (evaluation: StrokeEvaluation) => void;
       onReset?: () => void;
     }
@@ -42,6 +45,7 @@ export class DrawingController {
     this.view = view;
     this.stateMachine = stateMachine;
     this.strokeBuffer = strokeBuffer;
+    this.scoreStrategy = options?.scoreStrategy ?? new RmseScoreStrategy();
     this.onEvaluationComplete = options?.onEvaluationComplete;
     this.onReset = options?.onReset;
 
@@ -150,7 +154,7 @@ export class DrawingController {
         if (liveAmp >= 15) {
           const liveFit = SineFitter.fit(points);
           if (liveFit && liveFit.amplitude >= 18 && liveFit.fullCycles >= 0.4) {
-            this.liveEvaluation = DeviationCalculator.evaluate(points, liveFit, 30);
+            this.liveEvaluation = this.scoreStrategy.evaluate(points, liveFit, 30);
           }
         } else {
           this.liveEvaluation = null;
@@ -205,14 +209,27 @@ export class DrawingController {
       return;
     }
 
-    // Valid wave: compute orthogonal deviations and scoring
-    this.lastEvaluation = DeviationCalculator.evaluate(points, fit, 30);
+    // Valid wave: compute deviations and scoring via active pluggable strategy
+    this.lastEvaluation = this.scoreStrategy.evaluate(points, fit, 30);
     this.coordinateFrame = CoordinateSystem.computeFrame(fit, points);
     this.liveEvaluation = null;
     this.lastValidationMessage = null;
     this.startPulseAnimation();
     if (this.onEvaluationComplete) {
       this.onEvaluationComplete(this.lastEvaluation);
+    }
+  }
+
+  public getScoreStrategy(): IScoreStrategy {
+    return this.scoreStrategy;
+  }
+
+  public setScoreStrategy(strategy: IScoreStrategy): void {
+    this.scoreStrategy = strategy;
+    if (this.lastEvaluation) {
+      const points = this.strokeBuffer.getPoints();
+      this.lastEvaluation = this.scoreStrategy.evaluate(points, this.lastEvaluation.fittedSine, 30);
+      this.render();
     }
   }
 
