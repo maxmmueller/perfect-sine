@@ -1,0 +1,89 @@
+import { describe, it, expect } from 'vitest';
+import { DemoBot } from './DemoBot';
+import { SineFitter } from './SineFitter';
+
+describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
+  // Simple deterministic LCG random generator for reproducible unit testing
+  const createDeterministicRng = (seed: number = 42) => {
+    let s = seed;
+    return () => {
+      s = (s * 1664525 + 1013904223) % 4294967296;
+      return s / 4294967296;
+    };
+  };
+
+  it('should generate points using default options', () => {
+    const points = DemoBot.generateStroke();
+    expect(points.length).toBeGreaterThan(50);
+    expect(points[0]).toHaveProperty('x');
+    expect(points[0]).toHaveProperty('y');
+    expect(points[0]).toHaveProperty('time');
+  });
+
+  it('should generate a mathematically pristine sine wave when jitterLevel = 0', () => {
+    const amplitude = 50;
+    const wavelength = 200;
+    const cycles = 2.0;
+
+    const points = DemoBot.generateStroke({
+      width: 1000,
+      height: 800,
+      amplitude,
+      wavelength,
+      cycles,
+      jitterLevel: 0,
+      stepPx: 2,
+    });
+
+    const fit = SineFitter.fit(points);
+    expect(fit).not.toBeNull();
+    expect(fit!.amplitude).toBeCloseTo(amplitude, 0);
+    expect(fit!.fullCycles).toBeCloseTo(cycles, 1);
+    expect(fit!.r2).toBeGreaterThanOrEqual(0.99);
+  });
+
+  it('should introduce human-like motor tremor when jitterLevel > 0', () => {
+    const rng = createDeterministicRng(12345);
+    const points = DemoBot.generateStroke({
+      amplitude: 60,
+      wavelength: 250,
+      cycles: 1.5,
+      jitterLevel: 3.5,
+      rng,
+    });
+
+    const fit = SineFitter.fit(points);
+    expect(fit).not.toBeNull();
+    // Human jitter reduces R² from perfect (1.0) while keeping harmonic structure intact
+    expect(fit!.r2).toBeGreaterThan(0.75);
+    expect(fit!.r2).toBeLessThan(0.998);
+    expect(fit!.fullCycles).toBeCloseTo(1.5, 1);
+  });
+
+  it('should generate correctly oriented slanted waves', () => {
+    const tiltAngle = Math.PI / 6; // 30 degrees
+    const points = DemoBot.generateStroke({
+      amplitude: 50,
+      wavelength: 200,
+      cycles: 1.5,
+      tiltAngle,
+      jitterLevel: 0,
+    });
+
+    const fit = SineFitter.fit(points);
+    expect(fit).not.toBeNull();
+    expect(Math.abs(fit!.tilt.angle)).toBeCloseTo(tiltAngle, 1);
+  });
+
+  it('should clamp minimum parameters safely on boundary inputs', () => {
+    const points = DemoBot.generateStroke({
+      amplitude: -10, // clamped to >= 10
+      wavelength: 20, // clamped to >= 50
+      cycles: 0.1,    // clamped to >= 0.5
+      stepPx: -5,     // clamped to >= 1
+      jitterLevel: -2, // clamped to >= 0
+    });
+
+    expect(points.length).toBeGreaterThan(10);
+  });
+});
