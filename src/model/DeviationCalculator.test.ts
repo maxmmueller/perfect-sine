@@ -80,7 +80,7 @@ describe('DeviationCalculator (Orthogonal Distance, HSL Gradient & Scoring)', ()
 
     const evalRes = DeviationCalculator.evaluate(points, dummyFit, 25);
     expect(evalRes.accuracy).toBeGreaterThanOrEqual(98);
-    expect(evalRes.score).toBeGreaterThanOrEqual(980);
+    expect(evalRes.score).toBeGreaterThanOrEqual(950);
     expect(evalRes.rmse).toBeLessThan(0.5);
     expect(evalRes.deviations.length).toBe(points.length);
     for (const dev of evalRes.deviations) {
@@ -97,21 +97,22 @@ describe('DeviationCalculator (Orthogonal Distance, HSL Gradient & Scoring)', ()
 
     const evalRes = DeviationCalculator.evaluate(points, dummyFit, 25);
     expect(evalRes.accuracy).toBeLessThanOrEqual(40);
-    expect(evalRes.score).toBeLessThanOrEqual(400);
+    expect(evalRes.score).toBeLessThanOrEqual(150);
     expect(evalRes.rmse).toBeGreaterThanOrEqual(20);
     expect(evalRes.maxDeviation).toBeGreaterThanOrEqual(25);
   });
 
-  it('should scale gamified score with cycle count (accuracy * cycles * factor)', () => {
+  it('should weight accuracy significantly stronger than period count (5x strength)', () => {
     const points: Point[] = [{ x: 0, y: 0 }];
     const fit1Cycle: FittedSine = { ...dummyFit, fullCycles: 1.0 };
-    const fit3Cycles: FittedSine = { ...dummyFit, fullCycles: 3.0 };
+    const fit4Cycles: FittedSine = { ...dummyFit, fullCycles: 4.0 };
 
-    const res1 = DeviationCalculator.evaluate(points, fit1Cycle, 25, 10);
-    const res3 = DeviationCalculator.evaluate(points, fit3Cycles, 25, 10);
+    const res1 = DeviationCalculator.evaluate(points, fit1Cycle, 25);
+    const res4 = DeviationCalculator.evaluate(points, fit4Cycles, 25);
 
-    expect(res3.accuracy).toBe(res1.accuracy);
-    expect(res3.score).toBe(res1.score * 3);
+    expect(res4.accuracy).toBe(res1.accuracy);
+    // sqrt(4) = 2.0 -> score should be double for 4x cycles
+    expect(res4.score).toBeCloseTo(res1.score * 2.0, -1);
   });
 
   it('should mark anti-phase wave points as red even if intersecting', () => {

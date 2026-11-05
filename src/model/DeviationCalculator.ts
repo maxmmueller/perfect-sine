@@ -5,7 +5,7 @@ import { TiltDetector } from './TiltDetector';
  * DeviationCalculator computes synchronous point-wise orthogonal distance deviations from drawn strokes
  * to the fitted reference sine curve, maps deviations into an HSL color gradient
  * (120° Green -> 60° Yellow -> 0° Red), and calculates intrinsic accuracy (0-100%) as well as
- * gamified period-scaled scores (accuracy * cycles * factor).
+ * precision-weighted scores where accuracy is weighted 5x stronger than period count.
  */
 export class DeviationCalculator {
   /**
@@ -80,18 +80,19 @@ export class DeviationCalculator {
 
   /**
    * Evaluates an entire drawn stroke against the fitted sine wave.
-   * Computes intrinsic wave accuracy (0-100%) and gamified period-scaled score (accuracy * cycles * factor).
+   * Computes intrinsic wave accuracy (0-100%) and gamified score.
+   * Accuracy is weighted 5x stronger than period count (Accuracy^2.5 * sqrt(Cycles)).
    *
    * @param points Raw sampled stroke points.
    * @param fit FittedSine model.
    * @param maxTolerance Maximum deviation threshold (default 30px).
-   * @param scoreFactor Multiplier factor for gamified score (default 10).
+   * @param baseScoreScale Base score points at 100% accuracy and 1 cycle (default 1000).
    */
   public static evaluate(
     points: readonly Point[],
     fit: FittedSine,
     maxTolerance: number = 30,
-    scoreFactor: number = 10
+    baseScoreScale: number = 1000
   ): StrokeEvaluation {
     if (points.length === 0) {
       return {
@@ -141,8 +142,11 @@ export class DeviationCalculator {
     const scoreNorm = 0.65 * rawAccuracy + 0.35 * fit.r2;
     const accuracy = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
 
-    // Gamified total score: accuracy * cycles * factor
-    const score = Math.round(accuracy * fit.fullCycles * scoreFactor);
+    // Accuracy weighted 5x stronger than cycle count:
+    // Score = baseScoreScale * (accuracy / 100)^2.5 * sqrt(cycles)
+    const normalizedAccuracy = accuracy / 100;
+    const cycleMultiplier = Math.sqrt(Math.max(0.1, fit.fullCycles));
+    const score = Math.round(baseScoreScale * Math.pow(normalizedAccuracy, 2.5) * cycleMultiplier);
 
     return {
       fittedSine: fit,
