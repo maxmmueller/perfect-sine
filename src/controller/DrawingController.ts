@@ -6,6 +6,7 @@ import { PeriodValidator } from '../model/PeriodValidator';
 import { TiltDetector } from '../model/TiltDetector';
 import { DeviationCalculator } from '../model/DeviationCalculator';
 import { CoordinateSystem, CoordinateFrame } from '../model/CoordinateSystem';
+import { HitboxDetector } from '../model/HitboxDetector';
 import { StrokeEvaluation } from '../model/types';
 
 export class DrawingController {
@@ -57,14 +58,29 @@ export class DrawingController {
   }
 
   public handlePointerDown(e: PointerEvent): void {
-    // If state is locked after evaluation, reset to IDLE on next interaction
+    const pt = this.getCanvasPoint(e);
+
+    // If state is locked after evaluation, handle origin reset target or screen click
     if (this.stateMachine.getState() === 'LOCKED') {
+      const hitOrigin =
+        this.coordinateFrame !== null &&
+        HitboxDetector.isOriginHit(pt, this.coordinateFrame.origin);
+
       this.stopPulseAnimation();
       this.stateMachine.reset();
       this.lastEvaluation = null;
       this.liveEvaluation = null;
       this.lastValidationMessage = null;
       this.coordinateFrame = null;
+      this.strokeBuffer.clear();
+      this.canvas.style.cursor = 'default';
+
+      if (hitOrigin) {
+        // Explicit reset marker clicked: return to clean IDLE state without starting a new stroke immediately
+        this.render();
+        return;
+      }
+      // Clicked outside reset target: seamlessly start new drawing attempt below
     }
 
     if (this.stateMachine.getState() !== 'IDLE') {
@@ -85,18 +101,25 @@ export class DrawingController {
     this.lastValidationMessage = null;
     this.coordinateFrame = null;
 
-    const pt = this.getCanvasPoint(e);
     this.strokeBuffer.addPoint(pt.x, pt.y);
     this.stateMachine.startDrawing();
     this.render();
   }
 
   public handlePointerMove(e: PointerEvent): void {
+    const pt = this.getCanvasPoint(e);
+
+    // If hovering over interactive origin marker in LOCKED state, display pointer cursor
+    if (this.stateMachine.getState() === 'LOCKED' && this.coordinateFrame) {
+      const isHovered = HitboxDetector.isOriginHit(pt, this.coordinateFrame.origin);
+      this.canvas.style.cursor = isHovered ? 'pointer' : 'default';
+      return;
+    }
+
     if (!this.isPointerDown || this.stateMachine.getState() !== 'DRAWING') {
       return;
     }
 
-    const pt = this.getCanvasPoint(e);
     const added = this.strokeBuffer.addPoint(pt.x, pt.y);
     if (added) {
       // Compute live dynamic fit and gradient coloring during active drawing (requires minimum amplitude)
