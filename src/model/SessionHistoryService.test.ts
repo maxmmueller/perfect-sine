@@ -110,6 +110,16 @@ describe('SessionHistoryService (Statistical Verification & Persistence - Task 6
 
     // 7. Streak count: all 3 attempts have accuracy >= 80% => streak = 3
     expect(summary.streakCount).toBe(3);
+
+    // 8. Persona
+    expect(summary.persona.title).toBe('Rhythmic Wave Rider');
+  });
+
+  it('should categorize player personas across all score tiers', () => {
+    expect(SessionHistoryService.calculatePersona(90, 95).title).toBe('Laser Harmonic Synthesizer');
+    expect(SessionHistoryService.calculatePersona(75, 85).title).toBe('Rhythmic Wave Rider');
+    expect(SessionHistoryService.calculatePersona(50, 70).title).toBe('Analog Freehander');
+    expect(SessionHistoryService.calculatePersona(30, 40).title).toBe('Chaos Oscillator');
   });
 
   it('should reset streak count when recent attempt accuracy falls below 80%', () => {

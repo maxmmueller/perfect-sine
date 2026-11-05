@@ -9,11 +9,74 @@
   <body>
     <div id="app">
       <header class="app-header">
-        <h1>Perfect Sine</h1>
+        <div class="logo-area">
+          <h1>Perfect Sine</h1>
+        </div>
+        <div class="hud-metrics">
+          <div class="hud-pill" id="hud-score-pill">
+            <span class="hud-label">SCORE</span>
+            <span class="hud-val" id="hud-current-score">-</span>
+          </div>
+          <div class="hud-pill" id="hud-best-pill">
+            <span class="hud-label">BEST</span>
+            <span class="hud-val" id="hud-highscore">0 pts</span>
+          </div>
+          <button id="wrapped-btn" class="wrapped-trigger-btn" aria-label="Open Session Summary">
+            ✨ Wrapped
+          </button>
+        </div>
       </header>
+
       <main class="canvas-container">
         <canvas id="sine-canvas"></canvas>
       </main>
+
+      <!-- Spotify-Wrapped-Style Summary Modal -->
+      <div id="wrapped-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-backdrop"></div>
+        <div class="modal-card">
+          <button id="modal-close-x" class="modal-close-btn" aria-label="Close Summary">✕</button>
+          
+          <div class="modal-header">
+            <span class="wrapped-tag">SESSION WRAPPED</span>
+            <h2 id="modal-title">Your Sine Season</h2>
+            <p id="modal-persona-title" class="persona-title">Laser Harmonic Synthesizer</p>
+            <p id="modal-persona-subtitle" class="persona-subtitle">Sublime neuromuscular calibration and pristine sinusoidal precision.</p>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-card highlight">
+              <span class="stat-label">Personal Best</span>
+              <span id="stat-highscore" class="stat-val">0 pts</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Avg Accuracy</span>
+              <span id="stat-avg-accuracy" class="stat-val">0%</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Total Attempts</span>
+              <span id="stat-attempts" class="stat-val">0</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Total Cycles</span>
+              <span id="stat-cycles" class="stat-val">0.0</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Consistency</span>
+              <span id="stat-consistency" class="stat-val">100 / 100</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Best Streak (≥80%)</span>
+              <span id="stat-streak" class="stat-val">0</span>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button id="modal-resume-btn" class="btn-primary">Keep Drawing</button>
+            <button id="modal-reset-btn" class="btn-secondary">Reset Stats</button>
+          </div>
+        </div>
+      </div>
     </div>
     <script type="module" src="./src/main.ts"></script>
   </body>
