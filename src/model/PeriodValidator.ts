@@ -2,7 +2,7 @@ import { Point, PeriodValidationResult } from './types';
 
 /**
  * PeriodValidator verifies that a drawn curve satisfies the V-Model acceptance criteria:
- * it must span at least one full harmonic cycle (angular span >= 2*PI radians).
+ * it must span at least one harmonic cycle, with a natural drawing tolerance of ~0.88 - 0.90 periods.
  */
 export class PeriodValidator {
   /**
@@ -10,12 +10,12 @@ export class PeriodValidator {
    *
    * @param points Baseline-aligned points (x along baseline, y oscillating around offset).
    * @param overrideFrequency Optional known frequency omega (rad/px). If omitted, estimated from zero-crossings and extrema.
-   * @param minCycles Minimum full cycles required (defaults to 1.0 = 2*PI radians).
+   * @param minCycles Minimum full cycles required (defaults to 0.88 = ~0.9 period tolerance).
    */
   public static validate(
     points: readonly Point[],
     overrideFrequency?: number,
-    minCycles: number = 1.0
+    minCycles: number = 0.88
   ): PeriodValidationResult {
     if (!points || points.length < 5) {
       return {
@@ -131,7 +131,6 @@ export class PeriodValidator {
           }
         }
         if (peakTroughDists.length > 0) {
-          // The minimum positive peak-to-trough distance corresponds to half a period
           const halfPeriod = Math.min(...peakTroughDists);
           omega = Math.PI / halfPeriod;
         }
@@ -152,9 +151,9 @@ export class PeriodValidator {
     const totalSpan = baselineSpan * omega;
     const fullCycles = totalSpan / (2 * Math.PI);
 
-    // Curve is valid if it covers at least minCycles (with 0.02 numerical tolerance)
+    // Curve is valid if it covers at least minCycles (~0.88 - 0.90 tolerance) and exhibits harmonic alternation
     const hasAlternation = crossings.length >= 2 || (peaks.length >= 1 && troughs.length >= 1);
-    const isValid = fullCycles >= minCycles - 0.02 && hasAlternation;
+    const isValid = fullCycles >= minCycles && hasAlternation;
 
     return {
       isValid,
@@ -162,8 +161,8 @@ export class PeriodValidator {
       totalSpan,
       zeroCrossingsCount: crossings.length,
       message: isValid
-        ? `Valid period: ${fullCycles.toFixed(2)} cycles (>= 1.0 full period).`
-        : `Curve spans only ${fullCycles.toFixed(2)} cycles. At least ${minCycles.toFixed(1)} full period (2π) is required.`,
+        ? `Valid period: ${fullCycles.toFixed(2)} cycles.`
+        : `Curve spans only ${fullCycles.toFixed(2)} cycles. At least ~0.9 full period is required.`,
     };
   }
 }

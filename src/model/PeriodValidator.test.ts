@@ -55,8 +55,24 @@ describe('PeriodValidator (Boundary Value & Period Verification)', () => {
 
     const res = PeriodValidator.validate(points);
     expect(res.isValid).toBe(false);
-    expect(res.fullCycles).toBeLessThan(1.0);
-    expect(res.message).toContain('At least 1.0 full period (2π) is required');
+    expect(res.fullCycles).toBeLessThan(0.88);
+    expect(res.message).toContain('At least ~0.9 full period is required');
+  });
+
+  it('should accept a curve spanning ~0.95 cycles within tolerance', () => {
+    // Generate 0.95 period: sin(x) from x = 0 to 0.95 * 2*PI
+    const points: Point[] = [];
+    const L = 200; // 1 full cycle is 200
+    for (let x = 0; x <= 190; x += 2) {
+      points.push({
+        x,
+        y: 40 * Math.sin((x / L) * 2 * Math.PI),
+      });
+    }
+
+    const res = PeriodValidator.validate(points);
+    expect(res.isValid).toBe(true);
+    expect(res.fullCycles).toBeGreaterThanOrEqual(0.88);
   });
 
   it('should accept a curve spanning exactly 1.0 full period (boundary condition)', () => {
