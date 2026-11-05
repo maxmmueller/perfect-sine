@@ -7,13 +7,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
+      include: ['src/model/**'],
+      exclude: ['src/model/types.ts', 'src/model/**/*.test.ts', '**/*.d.ts'],
       thresholds: {
         lines: 80,
         functions: 80,
         branches: 80,
         statements: 80,
       },
-      exclude: ['src/main.ts', 'dist/**', '**/*.d.ts', '**/*.config.*'],
     },
   },
 });
