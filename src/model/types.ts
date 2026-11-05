@@ -37,6 +37,23 @@ export interface FittedSine {
   readonly r2: number;
 }
 
+export interface PointDeviation {
+  readonly point: Point;
+  readonly distance: number;
+  readonly normalizedError: number;
+  readonly hue: number;
+  readonly color: string;
+}
+
+export interface StrokeEvaluation {
+  readonly fittedSine: FittedSine;
+  readonly deviations: readonly PointDeviation[];
+  readonly meanDeviation: number;
+  readonly maxDeviation: number;
+  readonly rmse: number;
+  readonly score: number;
+}
+
 export type GameState = 'IDLE' | 'DRAWING' | 'EVALUATING' | 'LOCKED';
 
 export type StateChangeListener = (newState: GameState, oldState: GameState) => void;

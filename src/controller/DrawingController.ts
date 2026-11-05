@@ -1,6 +1,11 @@
 import { GameStateMachine } from '../model/GameStateMachine';
 import { StrokeBuffer } from '../model/StrokeBuffer';
 import { CanvasView } from '../view/CanvasView';
+import { SineFitter } from '../model/SineFitter';
+import { PeriodValidator } from '../model/PeriodValidator';
+import { TiltDetector } from '../model/TiltDetector';
+import { DeviationCalculator } from '../model/DeviationCalculator';
+import { StrokeEvaluation } from '../model/types';
 
 export class DrawingController {
   private readonly canvas: HTMLCanvasElement;
@@ -8,6 +13,8 @@ export class DrawingController {
   private readonly stateMachine: GameStateMachine;
   private readonly strokeBuffer: StrokeBuffer;
   private isPointerDown = false;
+  private lastEvaluation: StrokeEvaluation | null = null;
+  private lastValidationMessage: string | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -44,7 +51,14 @@ export class DrawingController {
     };
   }
 
-  private handlePointerDown(e: PointerEvent): void {
+  public handlePointerDown(e: PointerEvent): void {
+    // If state is locked after evaluation, reset to IDLE on next interaction
+    if (this.stateMachine.getState() === 'LOCKED') {
+      this.stateMachine.reset();
+      this.lastEvaluation = null;
+      this.lastValidationMessage = null;
+    }
+
     if (this.stateMachine.getState() !== 'IDLE') {
       return;
     }
@@ -57,6 +71,8 @@ export class DrawingController {
 
     this.isPointerDown = true;
     this.strokeBuffer.clear();
+    this.lastEvaluation = null;
+    this.lastValidationMessage = null;
 
     const pt = this.getCanvasPoint(e);
     this.strokeBuffer.addPoint(pt.x, pt.y);
@@ -64,7 +80,7 @@ export class DrawingController {
     this.render();
   }
 
-  private handlePointerMove(e: PointerEvent): void {
+  public handlePointerMove(e: PointerEvent): void {
     if (!this.isPointerDown || this.stateMachine.getState() !== 'DRAWING') {
       return;
     }
@@ -76,7 +92,7 @@ export class DrawingController {
     }
   }
 
-  private handlePointerUp(e: PointerEvent): void {
+  public handlePointerUp(e: PointerEvent): void {
     if (!this.isPointerDown) {
       return;
     }
@@ -90,15 +106,90 @@ export class DrawingController {
 
     if (this.stateMachine.getState() === 'DRAWING') {
       this.stateMachine.finishDrawing();
+      this.evaluateStroke();
+      this.stateMachine.setEvaluated();
       this.render();
     }
+  }
+
+  private evaluateStroke(): void {
+    const points = this.strokeBuffer.getPoints();
+    if (points.length < 8) {
+      this.lastValidationMessage = 'Stroke too short. Draw a continuous wave.';
+      this.lastEvaluation = null;
+      return;
+    }
+
+    const fit = SineFitter.fit(points);
+    if (!fit) {
+      this.lastValidationMessage = 'Could not resolve wave geometry.';
+      this.lastEvaluation = null;
+      return;
+    }
+
+    // Validate period coverage (at least 2*PI radians)
+    const aligned = TiltDetector.transformPoints(points, fit.tilt);
+    const periodCheck = PeriodValidator.validate(aligned, fit.frequency);
+
+    if (!periodCheck.isValid) {
+      this.lastValidationMessage = periodCheck.message ?? 'Incomplete wave. Spanning >= 2π required.';
+      this.lastEvaluation = null;
+      return;
+    }
+
+    // Valid wave: compute orthogonal deviations and scoring
+    this.lastEvaluation = DeviationCalculator.evaluate(points, fit, 25);
+    this.lastValidationMessage = null;
+  }
+
+  public getLastEvaluation(): StrokeEvaluation | null {
+    return this.lastEvaluation;
   }
 
   public render(): void {
     this.view.clear();
     const points = this.strokeBuffer.getPoints();
-    if (points.length > 0) {
-      this.view.renderStroke(points);
+
+    if (this.lastEvaluation) {
+      // 1. Render fitted reference curve guideline
+      const aligned = TiltDetector.transformPoints(points, this.lastEvaluation.fittedSine.tilt);
+      let minX = aligned[0].x;
+      let maxX = aligned[0].x;
+      for (const p of aligned) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+      }
+
+      const refCurve = SineFitter.generateFittedCurve(
+        this.lastEvaluation.fittedSine,
+        minX - 15,
+        maxX + 15,
+        3
+      );
+      this.view.renderFittedSineGuideline(refCurve);
+
+      // 2. Render color-interpolated user stroke
+      this.view.renderEvaluatedStroke(this.lastEvaluation.deviations);
+
+      // 3. Render score HUD banner
+      const score = this.lastEvaluation.score;
+      const cycles = this.lastEvaluation.fittedSine.fullCycles.toFixed(1);
+      const r2 = Math.round(this.lastEvaluation.fittedSine.r2 * 100);
+      this.view.renderBanner(
+        `Accuracy: ${score}%`,
+        `Cycles: ${cycles} | R²: ${r2}% | Touch to retry`
+      );
+    } else if (this.lastValidationMessage) {
+      // Incomplete wave feedback
+      if (points.length > 0) {
+        this.view.renderStroke(points, '#ff3366');
+      }
+      this.view.renderBanner('Incomplete Wave', `${this.lastValidationMessage} Touch to retry`, true);
+    } else {
+      // Active drawing
+      if (points.length > 0) {
+        this.view.renderStroke(points);
+      }
     }
   }
 }
