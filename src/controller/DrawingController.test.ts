@@ -121,14 +121,17 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     expect(evaluation!.score).toBeGreaterThan(0);
     expect(onEvaluationComplete).toHaveBeenCalledWith(evaluation);
 
-    // Coordinate frame should be computed and origin marker rendered
-    expect(controller.getCoordinateFrame()).not.toBeNull();
-    expect(mockView.renderOriginMarker).toHaveBeenCalled();
-    expect(mockView.renderCoordinateAxes).toHaveBeenCalled();
+    // Fitted reference guideline (dashed red) and evaluated stroke rendered without axes or reset marker
+    expect(mockView.renderFittedSineGuideline).toHaveBeenCalled();
+    expect(mockView.renderEvaluatedStroke).toHaveBeenCalled();
+    expect(mockView.renderOriginMarker).not.toHaveBeenCalled();
+    expect(mockView.renderCoordinateAxes).not.toHaveBeenCalled();
   });
 
-  it('should update cursor to pointer when hovering over origin marker in LOCKED state', () => {
-    const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+  it('should reset previous evaluation and seamlessly start a new stroke on pointerdown when in LOCKED state', () => {
+    const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
+      onReset,
+    });
     controller.handlePointerDown(createPointerEvent('pointerdown', 0, 200));
 
     const L = 200;
@@ -138,82 +141,36 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     }
     controller.handlePointerUp(createPointerEvent('pointerup', 250, 200));
 
-    const frame = controller.getCoordinateFrame();
-    expect(frame).not.toBeNull();
-
-    // Hover right over the origin
-    controller.handlePointerMove(createPointerEvent('pointermove', frame!.origin.x, frame!.origin.y));
-    expect(mockCanvas.style.cursor).toBe('pointer');
-
-    // Hover far away from origin
-    controller.handlePointerMove(createPointerEvent('pointermove', frame!.origin.x + 100, frame!.origin.y + 100));
-    expect(mockCanvas.style.cursor).toBe('default');
-  });
-
-  it('should reset cleanly to IDLE when clicking the origin reset marker', () => {
-    const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
-      onReset,
-    });
-
-    controller.handlePointerDown(createPointerEvent('pointerdown', 0, 200));
-    for (let x = 5; x <= 250; x += 5) {
-      const y = 200 + 40 * Math.sin((x / 200) * 2 * Math.PI);
-      controller.handlePointerMove(createPointerEvent('pointermove', x, y));
-    }
-    controller.handlePointerUp(createPointerEvent('pointerup', 250, 200));
-
     expect(stateMachine.getState()).toBe('LOCKED');
-    const frame = controller.getCoordinateFrame();
-    expect(frame).not.toBeNull();
+    expect(controller.getLastEvaluation()).not.toBeNull();
 
-    // Click exactly on the origin marker
-    controller.handlePointerDown(createPointerEvent('pointerdown', frame!.origin.x, frame!.origin.y));
-
-    // Must reset to IDLE and not start a new stroke
-    expect(stateMachine.getState()).toBe('IDLE');
-    expect(strokeBuffer.getLength()).toBe(0);
-    expect(controller.getLastEvaluation()).toBeNull();
-    expect(controller.getCoordinateFrame()).toBeNull();
+    // Clicking anywhere in LOCKED state resets previous evaluation and starts a new stroke
+    controller.handlePointerDown(createPointerEvent('pointerdown', 100, 100));
     expect(onReset).toHaveBeenCalled();
-  });
-
-  it('should reset and immediately start drawing when clicking outside origin marker in LOCKED state', () => {
-    const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
-      onReset,
-    });
-
-    controller.handlePointerDown(createPointerEvent('pointerdown', 0, 200));
-    for (let x = 5; x <= 250; x += 5) {
-      const y = 200 + 40 * Math.sin((x / 200) * 2 * Math.PI);
-      controller.handlePointerMove(createPointerEvent('pointermove', x, y));
-    }
-    controller.handlePointerUp(createPointerEvent('pointerup', 250, 200));
-
-    expect(stateMachine.getState()).toBe('LOCKED');
-    const frame = controller.getCoordinateFrame();
-
-    // Click far outside origin marker (e.g. at x + 200, y + 200)
-    controller.handlePointerDown(createPointerEvent('pointerdown', frame!.origin.x + 200, frame!.origin.y + 200));
-
-    // Must transition through reset to DRAWING with first point added
     expect(stateMachine.getState()).toBe('DRAWING');
+    expect(controller.getLastEvaluation()).toBeNull();
     expect(strokeBuffer.getLength()).toBe(1);
-    expect(onReset).toHaveBeenCalled();
   });
 
-  it('should support explicit controller.reset()', () => {
+  it('should support explicit controller.reset() cleanly returning to IDLE', () => {
     const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
       onReset,
     });
 
     controller.handlePointerDown(createPointerEvent('pointerdown', 0, 200));
-    controller.handlePointerMove(createPointerEvent('pointermove', 50, 200));
-    controller.handlePointerUp(createPointerEvent('pointerup', 50, 200));
+    for (let x = 5; x <= 250; x += 5) {
+      const y = 200 + 40 * Math.sin((x / 200) * 2 * Math.PI);
+      controller.handlePointerMove(createPointerEvent('pointermove', x, y));
+    }
+    controller.handlePointerUp(createPointerEvent('pointerup', 250, 200));
+
     expect(stateMachine.getState()).toBe('LOCKED');
 
     controller.reset();
+
     expect(stateMachine.getState()).toBe('IDLE');
     expect(strokeBuffer.getLength()).toBe(0);
+    expect(controller.getLastEvaluation()).toBeNull();
     expect(onReset).toHaveBeenCalled();
   });
 

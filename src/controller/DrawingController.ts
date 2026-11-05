@@ -5,7 +5,6 @@ import { SineFitter } from '../model/SineFitter';
 import { PeriodValidator } from '../model/PeriodValidator';
 import { TiltDetector } from '../model/TiltDetector';
 import { CoordinateSystem, CoordinateFrame } from '../model/CoordinateSystem';
-import { HitboxDetector } from '../model/HitboxDetector';
 import { DemoBot, DemoWaveOptions } from '../model/DemoBot';
 import { IScoreStrategy } from '../model/scoring/IScoreStrategy';
 import { RmseScoreStrategy } from '../model/scoring/RmseScoreStrategy';
@@ -22,8 +21,6 @@ export class DrawingController {
   private liveEvaluation: StrokeEvaluation | null = null;
   private lastValidationMessage: string | null = null;
   private coordinateFrame: CoordinateFrame | null = null;
-  private pulseAnimationId: number | null = null;
-  private pulseFactor = 0;
   private readonly onEvaluationComplete?: (evaluation: StrokeEvaluation) => void;
   private readonly onReset?: () => void;
   private demoAnimationId: number | null = null;
@@ -92,19 +89,9 @@ export class DrawingController {
 
     const pt = this.getCanvasPoint(e);
 
-    // If state is locked after evaluation, handle origin reset target or screen click
+    // If state is locked after evaluation, touch or click anywhere resets immediately
     if (this.stateMachine.getState() === 'LOCKED') {
-      const hitOrigin =
-        this.coordinateFrame !== null &&
-        HitboxDetector.isOriginHit(pt, this.coordinateFrame.origin);
-
       this.reset();
-
-      if (hitOrigin) {
-        // Explicit reset marker clicked: return to clean IDLE state without starting a new stroke immediately
-        return;
-      }
-      // Clicked outside reset target: seamlessly start new drawing attempt below
     }
 
     if (this.stateMachine.getState() !== 'IDLE') {
@@ -117,7 +104,6 @@ export class DrawingController {
       // safe fallback if pointer capture is unsupported
     }
 
-    this.stopPulseAnimation();
     this.isPointerDown = true;
     this.strokeBuffer.clear();
     this.lastEvaluation = null;
@@ -131,14 +117,11 @@ export class DrawingController {
   }
 
   public handlePointerMove(e: PointerEvent): void {
-    const pt = this.getCanvasPoint(e);
-
-    // If hovering over interactive origin marker in LOCKED state, display pointer cursor
-    if (this.stateMachine.getState() === 'LOCKED' && this.coordinateFrame) {
-      const isHovered = HitboxDetector.isOriginHit(pt, this.coordinateFrame.origin);
-      this.canvas.style.cursor = isHovered ? 'pointer' : 'default';
+    if (this.stateMachine.getState() === 'LOCKED') {
       return;
     }
+
+    const pt = this.getCanvasPoint(e);
 
     if (!this.isPointerDown || this.stateMachine.getState() !== 'DRAWING') {
       return;
@@ -214,7 +197,6 @@ export class DrawingController {
     this.coordinateFrame = CoordinateSystem.computeFrame(fit, points);
     this.liveEvaluation = null;
     this.lastValidationMessage = null;
-    this.startPulseAnimation();
     if (this.onEvaluationComplete) {
       this.onEvaluationComplete(this.lastEvaluation);
     }
@@ -234,7 +216,6 @@ export class DrawingController {
   }
 
   public reset(): void {
-    this.stopPulseAnimation();
     this.stopDemo();
     if (this.stateMachine.getState() === 'DRAWING') {
       this.stateMachine.finishDrawing();
@@ -346,43 +327,12 @@ export class DrawingController {
     return this.coordinateFrame;
   }
 
-  private startPulseAnimation(): void {
-    this.stopPulseAnimation();
-    if (typeof requestAnimationFrame === 'undefined') {
-      return;
-    }
-    const animate = () => {
-      if (this.stateMachine.getState() !== 'LOCKED' || !this.coordinateFrame) {
-        return;
-      }
-      this.pulseFactor = (Math.sin(performance.now() * 0.005) + 1) / 2;
-      this.render();
-      this.pulseAnimationId = requestAnimationFrame(animate);
-    };
-    this.pulseAnimationId = requestAnimationFrame(animate);
-  }
-
-  private stopPulseAnimation(): void {
-    if (this.pulseAnimationId !== null && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(this.pulseAnimationId);
-      this.pulseAnimationId = null;
-    }
-  }
-
   public render(): void {
     this.view.clear();
     const points = this.strokeBuffer.getPoints();
 
     if (this.lastEvaluation) {
-      // 0. Render coordinate axes if available
-      if (this.coordinateFrame) {
-        this.view.renderCoordinateAxes(
-          this.coordinateFrame.baselineAxis,
-          this.coordinateFrame.verticalAxis
-        );
-      }
-
-      // 1. Render fitted reference curve guideline
+      // 1. Render fitted reference curve guideline (closest approximation in dashed red)
       const aligned = TiltDetector.transformPoints(points, this.lastEvaluation.fittedSine.tilt);
       let minX = aligned[0].x;
       let maxX = aligned[0].x;
@@ -397,17 +347,12 @@ export class DrawingController {
         maxX + 15,
         3
       );
-      this.view.renderFittedSineGuideline(refCurve);
+      this.view.renderFittedSineGuideline(refCurve, 'rgba(255, 51, 68, 0.85)');
 
       // 2. Render color-interpolated user stroke
       this.view.renderEvaluatedStroke(this.lastEvaluation.deviations);
 
-      // 3. Render pulsing origin target marker
-      if (this.coordinateFrame) {
-        this.view.renderOriginMarker(this.coordinateFrame.origin, this.pulseFactor);
-      }
-
-      // 4. Render score HUD banner
+      // 3. Render score HUD banner
       const score = this.lastEvaluation.score;
       const accuracy = this.lastEvaluation.accuracy;
       const cycles = this.lastEvaluation.fittedSine.fullCycles.toFixed(1);

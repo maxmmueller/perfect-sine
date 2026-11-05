@@ -135,11 +135,11 @@ export class CanvasView {
   }
 
   /**
-   * Renders the fitted ideal reference sine curve as a clean, translucent guideline.
+   * Renders the fitted ideal reference sine curve as a dashed red approximation guideline.
    */
   public renderFittedSineGuideline(
     curvePoints: readonly Point[],
-    strokeColor: string = 'rgba(243, 85, 218, 0.7)',
+    strokeColor: string = 'rgba(255, 51, 68, 0.85)',
     lineWidth: number = 2.5
   ): void {
     if (curvePoints.length < 2) return;
@@ -150,8 +150,8 @@ export class CanvasView {
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
     this.ctx.shadowColor = strokeColor;
-    this.ctx.shadowBlur = 10;
-    this.ctx.setLineDash([4, 4]);
+    this.ctx.shadowBlur = 8;
+    this.ctx.setLineDash([5, 5]);
 
     this.ctx.beginPath();
     this.ctx.moveTo(curvePoints[0].x, curvePoints[0].y);
