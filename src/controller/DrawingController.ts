@@ -185,19 +185,22 @@ export class DrawingController {
 
       // 3. Render score HUD banner
       const score = this.lastEvaluation.score;
+      const accuracy = this.lastEvaluation.accuracy;
       const cycles = this.lastEvaluation.fittedSine.fullCycles.toFixed(1);
       const r2 = Math.round(this.lastEvaluation.fittedSine.r2 * 100);
       this.view.renderBanner(
-        `Accuracy: ${score}%`,
-        `Cycles: ${cycles} | R²: ${r2}% | Touch anywhere to retry`
+        `Score: ${score.toLocaleString()} pts`,
+        `Accuracy: ${accuracy}% | Cycles: ${cycles} | R²: ${r2}% | Touch anywhere to retry`
       );
     } else if (this.isPointerDown && this.liveEvaluation) {
       // Live drawing in progress with real-time gradient coloring
       this.view.renderEvaluatedStroke(this.liveEvaluation.deviations);
+      const liveScore = this.liveEvaluation.score;
+      const liveAccuracy = this.liveEvaluation.accuracy;
       const cycles = this.liveEvaluation.fittedSine.fullCycles.toFixed(1);
       this.view.renderBanner(
-        `Accuracy: ${this.liveEvaluation.score}%`,
-        `Live Cycles: ${cycles} (Drawing...)`
+        `Score: ${liveScore.toLocaleString()} pts`,
+        `Accuracy: ${liveAccuracy}% | Live Cycles: ${cycles}`
       );
     } else if (this.lastValidationMessage) {
       // Incomplete wave feedback

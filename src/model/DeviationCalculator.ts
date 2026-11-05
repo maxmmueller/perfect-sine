@@ -4,7 +4,8 @@ import { TiltDetector } from './TiltDetector';
 /**
  * DeviationCalculator computes synchronous point-wise orthogonal distance deviations from drawn strokes
  * to the fitted reference sine curve, maps deviations into an HSL color gradient
- * (120° Green -> 60° Yellow -> 0° Red), and calculates overall accuracy scores.
+ * (120° Green -> 60° Yellow -> 0° Red), and calculates intrinsic accuracy (0-100%) as well as
+ * gamified period-scaled scores (accuracy * cycles * factor).
  */
 export class DeviationCalculator {
   /**
@@ -79,15 +80,18 @@ export class DeviationCalculator {
 
   /**
    * Evaluates an entire drawn stroke against the fitted sine wave.
+   * Computes intrinsic wave accuracy (0-100%) and gamified period-scaled score (accuracy * cycles * factor).
    *
    * @param points Raw sampled stroke points.
    * @param fit FittedSine model.
    * @param maxTolerance Maximum deviation threshold (default 30px).
+   * @param scoreFactor Multiplier factor for gamified score (default 10).
    */
   public static evaluate(
     points: readonly Point[],
     fit: FittedSine,
-    maxTolerance: number = 30
+    maxTolerance: number = 30,
+    scoreFactor: number = 10
   ): StrokeEvaluation {
     if (points.length === 0) {
       return {
@@ -96,6 +100,7 @@ export class DeviationCalculator {
         meanDeviation: 0,
         maxDeviation: 0,
         rmse: 0,
+        accuracy: 0,
         score: 0,
       };
     }
@@ -131,10 +136,13 @@ export class DeviationCalculator {
     const meanDeviation = sumDist / points.length;
     const rmse = Math.sqrt(sumSqDist / points.length);
 
-    // V-Model score calculation: weighted between RMSE accuracy and R² shape adherence
+    // Intrinsic accuracy (0 - 100%) based on RMSE error and R² fit quality
     const rawAccuracy = Math.max(0, 1 - rmse / maxTolerance);
     const scoreNorm = 0.65 * rawAccuracy + 0.35 * fit.r2;
-    const score = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
+    const accuracy = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
+
+    // Gamified total score: accuracy * cycles * factor
+    const score = Math.round(accuracy * fit.fullCycles * scoreFactor);
 
     return {
       fittedSine: fit,
@@ -142,6 +150,7 @@ export class DeviationCalculator {
       meanDeviation,
       maxDeviation: maxDist,
       rmse,
+      accuracy,
       score,
     };
   }

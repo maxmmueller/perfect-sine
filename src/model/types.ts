@@ -51,6 +51,7 @@ export interface StrokeEvaluation {
   readonly meanDeviation: number;
   readonly maxDeviation: number;
   readonly rmse: number;
+  readonly accuracy: number;
   readonly score: number;
 }
 
