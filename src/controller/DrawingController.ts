@@ -7,6 +7,7 @@ import { TiltDetector } from '../model/TiltDetector';
 import { DeviationCalculator } from '../model/DeviationCalculator';
 import { CoordinateSystem, CoordinateFrame } from '../model/CoordinateSystem';
 import { HitboxDetector } from '../model/HitboxDetector';
+import { DemoBot, DemoWaveOptions } from '../model/DemoBot';
 import { StrokeEvaluation } from '../model/types';
 
 export class DrawingController {
@@ -23,6 +24,9 @@ export class DrawingController {
   private pulseFactor = 0;
   private readonly onEvaluationComplete?: (evaluation: StrokeEvaluation) => void;
   private readonly onReset?: () => void;
+  private demoAnimationId: number | null = null;
+  private demoTimeoutId: number | null = null;
+  private isDemoActive = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -51,6 +55,12 @@ export class DrawingController {
         this.view.handleResize();
         this.render();
       });
+      window.addEventListener('keydown', () => {
+        if (this.isDemoActive) {
+          this.stopDemo();
+          this.reset();
+        }
+      });
     }
 
     if (this.canvas && typeof this.canvas.addEventListener === 'function') {
@@ -70,6 +80,12 @@ export class DrawingController {
   }
 
   public handlePointerDown(e: PointerEvent): void {
+    // If bot demo is actively running, interrupt immediately and yield full control to user
+    if (this.isDemoActive) {
+      this.stopDemo();
+      this.reset();
+    }
+
     const pt = this.getCanvasPoint(e);
 
     // If state is locked after evaluation, handle origin reset target or screen click
@@ -202,6 +218,10 @@ export class DrawingController {
 
   public reset(): void {
     this.stopPulseAnimation();
+    this.stopDemo();
+    if (this.stateMachine.getState() === 'DRAWING') {
+      this.stateMachine.finishDrawing();
+    }
     if (this.stateMachine.getState() === 'LOCKED' || this.stateMachine.getState() === 'EVALUATING') {
       this.stateMachine.reset();
     }
@@ -214,6 +234,91 @@ export class DrawingController {
     this.canvas.style.cursor = 'default';
     this.onReset?.();
     this.render();
+  }
+
+  public startDemo(customOptions?: DemoWaveOptions): void {
+    this.stopDemo();
+    this.reset();
+    this.isDemoActive = true;
+
+    const dims = this.view.getDimensions();
+    const width = dims.width > 0 ? dims.width : 800;
+    const height = dims.height > 0 ? dims.height : 600;
+
+    const demoPoints = DemoBot.generateStroke({
+      width,
+      height,
+      amplitude: 45 + Math.random() * 25,
+      wavelength: 200 + Math.random() * 60,
+      cycles: 1.5 + Math.random() * 0.6,
+      tiltAngle: (Math.random() - 0.5) * 0.2,
+      jitterLevel: 2.0,
+      ...customOptions,
+    });
+
+    if (demoPoints.length === 0) return;
+
+    let pointIndex = 0;
+    const startTime = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const duration = demoPoints[demoPoints.length - 1].time || 1500;
+
+    const animateStroke = (timestamp: number) => {
+      if (!this.isDemoActive) return;
+
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(elapsed / duration, 1.0);
+      const targetCount = Math.floor(progress * demoPoints.length);
+
+      while (pointIndex < targetCount && pointIndex < demoPoints.length) {
+        this.strokeBuffer.addPoint(demoPoints[pointIndex].x, demoPoints[pointIndex].y);
+        pointIndex++;
+      }
+
+      this.render();
+
+      if (progress < 1.0) {
+        if (typeof requestAnimationFrame !== 'undefined') {
+          this.demoAnimationId = requestAnimationFrame(animateStroke);
+        }
+      } else {
+        // Complete demo stroke: evaluate and display
+        this.evaluateStroke();
+        if (this.stateMachine.getState() === 'DRAWING') {
+          this.stateMachine.finishDrawing();
+        }
+        this.stateMachine.setEvaluated();
+        this.render();
+
+        if (typeof setTimeout !== 'undefined') {
+          this.demoTimeoutId = setTimeout(() => {
+            if (this.isDemoActive) {
+              this.startDemo();
+            }
+          }, 3000) as unknown as number;
+        }
+      }
+    };
+
+    this.stateMachine.startDrawing();
+    if (typeof requestAnimationFrame !== 'undefined') {
+      this.demoAnimationId = requestAnimationFrame(animateStroke);
+    }
+  }
+
+  public stopDemo(): void {
+    if (this.demoAnimationId !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(this.demoAnimationId);
+      this.demoAnimationId = null;
+    }
+    if (this.demoTimeoutId !== null && typeof clearTimeout !== 'undefined') {
+      clearTimeout(this.demoTimeoutId);
+      this.demoTimeoutId = null;
+    }
+    this.isDemoActive = false;
+  }
+
+  public isDemoPlaying(): boolean {
+    return this.isDemoActive;
   }
 
   public getLastEvaluation(): StrokeEvaluation | null {
@@ -290,10 +395,17 @@ export class DrawingController {
       const accuracy = this.lastEvaluation.accuracy;
       const cycles = this.lastEvaluation.fittedSine.fullCycles.toFixed(1);
       const r2 = Math.round(this.lastEvaluation.fittedSine.r2 * 100);
-      this.view.renderBanner(
-        `Score: ${score.toLocaleString()} pts`,
-        `Accuracy: ${accuracy}% | Cycles: ${cycles} | R²: ${r2}% | Touch anywhere to retry`
-      );
+      if (this.isDemoActive) {
+        this.view.renderBanner(
+          `Demo: ${score.toLocaleString()} pts`,
+          `Bot Accuracy: ${accuracy}% | Cycles: ${cycles} | Touch anywhere to play!`
+        );
+      } else {
+        this.view.renderBanner(
+          `Score: ${score.toLocaleString()} pts`,
+          `Accuracy: ${accuracy}% | Cycles: ${cycles} | R²: ${r2}% | Touch anywhere to retry`
+        );
+      }
     } else if (this.isPointerDown && this.liveEvaluation) {
       // Live drawing in progress with real-time gradient coloring
       this.view.renderEvaluatedStroke(this.liveEvaluation.deviations);
@@ -316,6 +428,9 @@ export class DrawingController {
       // Initial active drawing or idle state
       if (points.length > 0) {
         this.view.renderStroke(points);
+      }
+      if (this.isDemoActive) {
+        this.view.renderBanner('Demo Mode', 'Touch or click anywhere to play!');
       }
     }
   }

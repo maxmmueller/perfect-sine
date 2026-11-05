@@ -216,4 +216,48 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     expect(strokeBuffer.getLength()).toBe(0);
     expect(onReset).toHaveBeenCalled();
   });
+
+  describe('Demo Bot Simulation & User Interruption (US05)', () => {
+    it('should start demo animation and set isDemoPlaying to true', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      expect(controller.isDemoPlaying()).toBe(false);
+
+      controller.startDemo();
+      expect(controller.isDemoPlaying()).toBe(true);
+      expect(stateMachine.getState()).toBe('DRAWING');
+    });
+
+    it('should stop demo animation cleanly when stopDemo is called', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      controller.startDemo();
+      expect(controller.isDemoPlaying()).toBe(true);
+
+      controller.stopDemo();
+      expect(controller.isDemoPlaying()).toBe(false);
+    });
+
+    it('should immediately interrupt demo and yield control to user on pointer down', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
+        onReset,
+      });
+      controller.startDemo();
+      expect(controller.isDemoPlaying()).toBe(true);
+
+      // User interrupts by clicking/touching canvas
+      controller.handlePointerDown(createPointerEvent('pointerdown', 120, 250));
+
+      expect(controller.isDemoPlaying()).toBe(false);
+      expect(stateMachine.getState()).toBe('DRAWING');
+      expect(strokeBuffer.getLength()).toBe(1);
+      expect(strokeBuffer.getPoints()[0]).toEqual({ x: 120, y: 250, time: expect.any(Number) });
+    });
+
+    it('should handle repeated stopDemo calls gracefully without errors (clean teardown)', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      controller.startDemo();
+      controller.stopDemo();
+      controller.stopDemo();
+      expect(controller.isDemoPlaying()).toBe(false);
+    });
+  });
 });
