@@ -166,6 +166,88 @@ export class CanvasView {
   }
 
   /**
+   * Renders coordinate axes (baseline and vertical axis) for the fitted reference sine curve.
+   */
+  public renderCoordinateAxes(
+    baselineAxis: { start: Point; end: Point },
+    verticalAxis: { start: Point; end: Point },
+    color: string = 'rgba(148, 163, 184, 0.35)'
+  ): void {
+    this.ctx.save();
+    this.ctx.strokeStyle = color;
+    this.ctx.lineWidth = 1.5;
+    this.ctx.setLineDash([5, 5]);
+
+    // Baseline axis (y' = 0)
+    this.ctx.beginPath();
+    this.ctx.moveTo(baselineAxis.start.x, baselineAxis.start.y);
+    this.ctx.lineTo(baselineAxis.end.x, baselineAxis.end.y);
+    this.ctx.stroke();
+
+    // Vertical axis at origin (x' = minX)
+    this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    this.ctx.setLineDash([3, 3]);
+    this.ctx.beginPath();
+    this.ctx.moveTo(verticalAxis.start.x, verticalAxis.start.y);
+    this.ctx.lineTo(verticalAxis.end.x, verticalAxis.end.y);
+    this.ctx.stroke();
+
+    this.ctx.restore();
+  }
+
+  /**
+   * Renders the interactive pulsing target marker at the coordinate origin.
+   *
+   * @param origin Screen position of the coordinate origin.
+   * @param pulseFactor Animated pulse factor between 0.0 and 1.0 (sinusoidal breathing).
+   * @param hitRadius Accessible hitbox radius (e.g. 24px for 48x48px target >= 44x44px).
+   */
+  public renderOriginMarker(
+    origin: Point,
+    pulseFactor: number = 0.5,
+    hitRadius: number = 24
+  ): void {
+    this.ctx.save();
+
+    // 1. Outer pulsing halo ring
+    const outerRadius = hitRadius + 4 + pulseFactor * 8;
+    const outerAlpha = 0.4 * (1 - pulseFactor * 0.5);
+    this.ctx.beginPath();
+    this.ctx.arc(origin.x, origin.y, outerRadius, 0, Math.PI * 2);
+    this.ctx.strokeStyle = `rgba(0, 240, 255, ${outerAlpha})`;
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+
+    // 2. Interactive hitbox ring (>= 44x44px clickable target)
+    this.ctx.beginPath();
+    this.ctx.arc(origin.x, origin.y, hitRadius, 0, Math.PI * 2);
+    this.ctx.fillStyle = 'rgba(0, 240, 255, 0.12)';
+    this.ctx.fill();
+    this.ctx.strokeStyle = '#00f0ff';
+    this.ctx.lineWidth = 2;
+    this.ctx.shadowColor = '#00f0ff';
+    this.ctx.shadowBlur = 10;
+    this.ctx.stroke();
+
+    // 3. Central target bullseye
+    this.ctx.beginPath();
+    this.ctx.arc(origin.x, origin.y, 4, 0, Math.PI * 2);
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.shadowColor = '#ffffff';
+    this.ctx.shadowBlur = 6;
+    this.ctx.fill();
+
+    // 4. "RESET" micro-label badge
+    this.ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.fillStyle = '#00f0ff';
+    this.ctx.shadowBlur = 0;
+    this.ctx.fillText('RESET', origin.x, origin.y + hitRadius + 15);
+
+    this.ctx.restore();
+  }
+
+  /**
    * Renders a transient notification or score banner directly on canvas.
    */
   public renderBanner(
