@@ -9,6 +9,11 @@ export interface AttemptRecord {
   readonly strategyId?: string;
 }
 
+export interface PersonaRating {
+  readonly title: string;
+  readonly subtitle: string;
+}
+
 export interface SessionSummary {
   readonly totalAttempts: number;
   readonly highscore: number;
@@ -20,6 +25,7 @@ export interface SessionSummary {
   readonly consistencyScore: number;
   readonly totalCyclesDrawn: number;
   readonly streakCount: number;
+  readonly persona: PersonaRating;
 }
 
 export interface IStorageAdapter {
@@ -139,6 +145,10 @@ export class SessionHistoryService {
         consistencyScore: 100,
         totalCyclesDrawn: 0,
         streakCount: 0,
+        persona: {
+          title: 'Aspiring Harmonist',
+          subtitle: 'Draw your first sine wave to unlock your sonic persona.',
+        },
       };
     }
 
@@ -178,6 +188,8 @@ export class SessionHistoryService {
       }
     }
 
+    const persona = SessionHistoryService.calculatePersona(consistencyScore, averageAccuracy);
+
     return {
       totalAttempts: n,
       highscore,
@@ -189,6 +201,32 @@ export class SessionHistoryService {
       consistencyScore,
       totalCyclesDrawn: Math.round(totalCycles * 10) / 10,
       streakCount,
+      persona,
+    };
+  }
+
+  public static calculatePersona(consistency: number, accuracy: number): PersonaRating {
+    if (accuracy >= 92 && consistency >= 85) {
+      return {
+        title: 'Laser Harmonic Synthesizer',
+        subtitle: 'Sublime neuromuscular calibration and pristine sinusoidal precision.',
+      };
+    }
+    if (accuracy >= 80 && consistency >= 70) {
+      return {
+        title: 'Rhythmic Wave Rider',
+        subtitle: 'Natural, fluid cadence with confident peak-to-trough balance.',
+      };
+    }
+    if (accuracy >= 65) {
+      return {
+        title: 'Analog Freehander',
+        subtitle: 'Expressive organic curves with bold amplitude presence.',
+      };
+    }
+    return {
+      title: 'Chaos Oscillator',
+      subtitle: 'Unbound kinetic energy defying conventional harmonic constraints.',
     };
   }
 
