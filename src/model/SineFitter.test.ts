@@ -123,4 +123,31 @@ describe('SineFitter (Mathematical Regression & Parameter Fitting)', () => {
     expect(curve[0]).toHaveProperty('x');
     expect(curve[0]).toHaveProperty('y');
   });
+
+  it('should accurately fit a 5-period wave with baseline drift and hand tremor', () => {
+    const W = 900;
+    const truePeriods = 5;
+    const trueOmega = (truePeriods * 2 * Math.PI) / W;
+    const trueA = 100;
+    const trueC = 350;
+    const points: Point[] = [];
+
+    for (let x = 0; x <= W; x += 4) {
+      const drift = 25 * Math.sin((x / W) * Math.PI);
+      const tremor = 6 * Math.sin(11 * x);
+      points.push({
+        x,
+        y: trueA * Math.sin(trueOmega * x) + trueC + drift + tremor,
+      });
+    }
+
+    const fit = SineFitter.fit(points);
+    expect(fit).not.toBeNull();
+    if (!fit) return;
+
+    // Must detect ~5 periods, NOT 12 or 13
+    expect(fit.fullCycles).toBeGreaterThanOrEqual(4.5);
+    expect(fit.fullCycles).toBeLessThanOrEqual(5.5);
+    expect(fit.r2).toBeGreaterThanOrEqual(0.85);
+  });
 });

@@ -2,14 +2,17 @@ import { Point, FittedSine, PointDeviation, StrokeEvaluation } from './types';
 import { TiltDetector } from './TiltDetector';
 
 /**
- * DeviationCalculator computes point-wise orthogonal distance deviations from drawn strokes
+ * DeviationCalculator computes synchronous point-wise orthogonal distance deviations from drawn strokes
  * to the fitted reference sine curve, maps deviations into an HSL color gradient
  * (120° Green -> 60° Yellow -> 0° Red), and calculates overall accuracy scores.
  */
 export class DeviationCalculator {
   /**
-   * Calculates the perpendicular orthogonal distance from a point in aligned coordinates (u, v)
-   * to the fitted sine curve f(u) = A * sin(omega * u + phi) + C using Newton-Raphson optimization.
+   * Calculates the perpendicular orthogonal distance from point (u, v) in baseline-aligned coordinates
+   * to the reference sine curve at the corresponding cycle progression u.
+   *
+   * To prevent false-green intersections where curves merely cross each other at different phases,
+   * search is strictly constrained to the local harmonic neighborhood (within +/- T / 8).
    */
   public static calculateOrthogonalDistance(
     u: number,
@@ -18,12 +21,12 @@ export class DeviationCalculator {
   ): number {
     const { amplitude: a, frequency: omega, phase: phi, offset: c } = fit;
 
-    // Initial estimate of closest curve coordinate u is u itself
+    // Constrain closest-point search strictly within +/- T / 8 (one eighth period)
+    // to ensure the point is evaluated against its matching wave progression phase.
+    const maxSearchDelta = Math.PI / (4 * Math.max(1e-4, omega));
     let uCurr = u;
 
-    // Minimize squared Euclidean distance:
-    // D(u) = (u - u_pt)^2 + (f(u) - v_pt)^2
-    // D'(u) = 2 * ( (u - u_pt) + (f(u) - v_pt) * f'(u) ) = 0
+    // Newton-Raphson refinement bounded to local phase neighborhood
     for (let iter = 0; iter < 4; iter++) {
       const angle = omega * uCurr + phi;
       const fVal = a * Math.sin(angle) + c;
@@ -36,7 +39,15 @@ export class DeviationCalculator {
 
       if (Math.abs(gPrime) < 1e-6) break;
       const step = g / gPrime;
-      uCurr -= step;
+      const nextU = uCurr - step;
+
+      // Clamp within local harmonic cycle neighborhood
+      if (Math.abs(nextU - u) > maxSearchDelta) {
+        uCurr = u + Math.sign(nextU - u) * maxSearchDelta;
+        break;
+      }
+
+      uCurr = nextU;
       if (Math.abs(step) < 1e-4) break;
     }
 
@@ -52,11 +63,11 @@ export class DeviationCalculator {
    * Maps an orthogonal distance to an HSL color string and hue between 120° (Green) and 0° (Red).
    *
    * @param distance Orthogonal distance in pixels.
-   * @param maxTolerance Distance in pixels considered 100% error (defaults to 25px).
+   * @param maxTolerance Distance in pixels considered 100% error (defaults to 30px).
    */
   public static mapDistanceToColor(
     distance: number,
-    maxTolerance: number = 25
+    maxTolerance: number = 30
   ): { hue: number; normalizedError: number; color: string } {
     const safeDistance = Math.max(0, distance);
     const normalizedError = Math.min(1.0, safeDistance / maxTolerance);
@@ -71,12 +82,12 @@ export class DeviationCalculator {
    *
    * @param points Raw sampled stroke points.
    * @param fit FittedSine model.
-   * @param maxTolerance Maximum deviation threshold (default 25px).
+   * @param maxTolerance Maximum deviation threshold (default 30px).
    */
   public static evaluate(
     points: readonly Point[],
     fit: FittedSine,
-    maxTolerance: number = 25
+    maxTolerance: number = 30
   ): StrokeEvaluation {
     if (points.length === 0) {
       return {
@@ -122,7 +133,7 @@ export class DeviationCalculator {
 
     // V-Model score calculation: weighted between RMSE accuracy and R² shape adherence
     const rawAccuracy = Math.max(0, 1 - rmse / maxTolerance);
-    const scoreNorm = 0.7 * rawAccuracy + 0.3 * fit.r2;
+    const scoreNorm = 0.65 * rawAccuracy + 0.35 * fit.r2;
     const score = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
 
     return {

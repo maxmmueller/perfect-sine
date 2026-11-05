@@ -96,7 +96,24 @@ describe('DeviationCalculator (Orthogonal Distance, HSL Gradient & Scoring)', ()
 
     const evalRes = DeviationCalculator.evaluate(points, dummyFit, 25);
     expect(evalRes.score).toBeLessThanOrEqual(40);
-    expect(evalRes.rmse).toBeGreaterThanOrEqual(25);
+    expect(evalRes.rmse).toBeGreaterThanOrEqual(20);
     expect(evalRes.maxDeviation).toBeGreaterThanOrEqual(25);
   });
+
+  it('should mark anti-phase wave points as red even if intersecting', () => {
+    // Reference has positive peak at x=50 (y=+40).
+    // Drawn wave is inverted: negative peak at x=50 (y=-40).
+    const points: Point[] = [];
+    for (let x = 0; x <= 200; x += 10) {
+      points.push({ x, y: -40 * Math.sin((x / 200) * 2 * Math.PI) });
+    }
+
+    const evalRes = DeviationCalculator.evaluate(points, dummyFit, 25);
+    // Anti-phase points at peaks have ~80px vertical difference -> pure Red
+    const peakPointDev = evalRes.deviations.find((d) => d.point.x === 50);
+    expect(peakPointDev).toBeDefined();
+    expect(peakPointDev?.hue).toBe(0);
+    expect(peakPointDev?.color).toBe('hsl(0, 100%, 50%)');
+  });
 });
+

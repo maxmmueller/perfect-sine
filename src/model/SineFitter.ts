@@ -3,9 +3,9 @@ import { TiltDetector } from './TiltDetector';
 
 export class SineFitter {
   /**
-   * Fits a sine model f(x) = A * sin(omega * x + phi) + C to the given points.
-   * If points are in raw canvas coordinates, tilt detection and coordinate
-   * transformation are performed automatically.
+   * Fits a harmonic sine wave model f(u) = A * sin(omega * u + phi) + C to the given points.
+   * Employs peak-to-peak extrema analysis and a multi-scale grid search to accurately identify
+   * the true macroscopic wave frequency, preventing local-minima traps from hand tremors.
    *
    * @param rawPoints Sequence of sampled 2D points.
    * @param precomputedTilt Optional pre-computed TiltResult.
@@ -19,14 +19,14 @@ export class SineFitter {
       return null;
     }
 
-    // 1. Detect tilt and transform points to baseline-aligned horizontal frame
+    // 1. Detect baseline tilt and transform points to horizontal frame
     const tilt = precomputedTilt ?? TiltDetector.detectTilt(rawPoints);
     const transformed = TiltDetector.transformPoints(rawPoints, tilt);
 
-    // Sort transformed points along horizontal baseline x
+    // Sort transformed points along horizontal baseline u
     const sorted = [...transformed].sort((a, b) => a.x - b.x);
 
-    // Filter points to ensure monotonic x progression (avoid backward loop noise)
+    // Filter points to ensure monotonic x progression
     const pts: Point[] = [];
     let lastX = -Infinity;
     for (const p of sorted) {
@@ -53,67 +53,110 @@ export class SineFitter {
 
     const cInit = sumY / pts.length;
     const aInit = Math.max((maxY - minY) / 2, 5.0);
+    const spanX = pts[pts.length - 1].x - pts[0].x;
 
-    // Estimate dominant frequency omega from zero crossings
-    const crossings: number[] = [];
-    for (let i = 1; i < pts.length; i++) {
-      const y1 = pts[i - 1].y - cInit;
-      const y2 = pts[i].y - cInit;
-      if ((y1 <= 0 && y2 > 0) || (y1 >= 0 && y2 < 0)) {
-        const dy = y2 - y1;
-        const t = Math.abs(dy) > 1e-9 ? -y1 / dy : 0.5;
-        crossings.push(pts[i - 1].x + t * (pts[i].x - pts[i - 1].x));
+    if (spanX <= 5) {
+      return null;
+    }
+
+    // 3. Robust dominant frequency estimation using Prominent Extrema (Peak/Trough) Analysis
+    const window = Math.max(3, Math.floor(pts.length / 25));
+    const peaks: number[] = [];
+    const troughs: number[] = [];
+    const prominenceThreshold = 0.15 * aInit;
+
+    for (let i = window; i < pts.length - window; i++) {
+      let isMax = true;
+      let isMin = true;
+      for (let j = i - window; j <= i + window; j++) {
+        if (pts[j].y > pts[i].y) isMax = false;
+        if (pts[j].y < pts[i].y) isMin = false;
+      }
+      if (isMax && pts[i].y > cInit + prominenceThreshold) {
+        peaks.push(pts[i].x);
+      }
+      if (isMin && pts[i].y < cInit - prominenceThreshold) {
+        troughs.push(pts[i].x);
       }
     }
 
-    let omegaInit = 0.02;
-    if (crossings.length >= 2) {
-      const diffs: number[] = [];
-      for (let i = 1; i < crossings.length; i++) {
-        const diff = crossings[i] - crossings[i - 1];
-        if (diff > 5) {
-          diffs.push(diff);
+    // Estimate candidate period T
+    const periodEstimates: number[] = [];
+    for (let i = 1; i < peaks.length; i++) {
+      const d = peaks[i] - peaks[i - 1];
+      if (d > 20) periodEstimates.push(d);
+    }
+    for (let i = 1; i < troughs.length; i++) {
+      const d = troughs[i] - troughs[i - 1];
+      if (d > 20) periodEstimates.push(d);
+    }
+
+    let omegaInit: number;
+
+    if (periodEstimates.length > 0) {
+      periodEstimates.sort((a, b) => a - b);
+      const medianPeriod = periodEstimates[Math.floor(periodEstimates.length / 2)];
+      omegaInit = (2 * Math.PI) / medianPeriod;
+    } else if (peaks.length >= 1 && troughs.length >= 1) {
+      // Half-period from closest peak-to-trough distance
+      let minPTDist = Infinity;
+      for (const p of peaks) {
+        for (const t of troughs) {
+          const dist = Math.abs(p - t);
+          if (dist > 15 && dist < minPTDist) {
+            minPTDist = dist;
+          }
         }
       }
-      if (diffs.length > 0) {
-        const avgHalfPeriod = diffs.reduce((a, b) => a + b, 0) / diffs.length;
-        if (avgHalfPeriod > 5) {
-          omegaInit = Math.PI / avgHalfPeriod;
-        }
-      }
-    } else {
-      const spanX = pts[pts.length - 1].x - pts[0].x;
-      if (spanX > 20) {
+      if (minPTDist !== Infinity) {
+        omegaInit = Math.PI / minPTDist;
+      } else {
         omegaInit = (2 * Math.PI) / spanX;
       }
+    } else {
+      // Default to 1 full period over the span
+      omegaInit = (2 * Math.PI) / spanX;
     }
 
-    // Phase coarse grid search: find phase minimizing squared error
+    // Clamp omegaInit to physically realistic human drawing frequencies
+    // Typically between 0.5 cycles and 8 cycles across the stroke span
+    const minOmega = (0.5 * 2 * Math.PI) / spanX;
+    const maxOmega = (8.0 * 2 * Math.PI) / spanX;
+    omegaInit = Math.max(minOmega, Math.min(maxOmega, omegaInit));
+
+    // 4. Multi-scale Grid Search around omegaInit and phase phi to find global basin of attraction
+    let bestOmega = omegaInit;
     let bestPhi = 0;
     let bestErr = Infinity;
-    const phiSteps = 32;
-    for (let s = 0; s < phiSteps; s++) {
-      const phiCandidate = (s / phiSteps) * (2 * Math.PI);
-      let err = 0;
-      for (const p of pts) {
-        const yPred = aInit * Math.sin(omegaInit * p.x + phiCandidate) + cInit;
-        const diff = p.y - yPred;
-        err += diff * diff;
-      }
-      if (err < bestErr) {
-        bestErr = err;
-        bestPhi = phiCandidate;
+
+    const omegaMultipliers = [0.75, 0.85, 0.93, 1.0, 1.07, 1.15, 1.25];
+    const phiSteps = 24;
+
+    for (const mult of omegaMultipliers) {
+      const candidateOmega = omegaInit * mult;
+      for (let s = 0; s < phiSteps; s++) {
+        const candidatePhi = (s / phiSteps) * (2 * Math.PI);
+        let err = 0;
+        for (const p of pts) {
+          const yPred = aInit * Math.sin(candidateOmega * p.x + candidatePhi) + cInit;
+          const diff = p.y - yPred;
+          err += diff * diff;
+        }
+        if (err < bestErr) {
+          bestErr = err;
+          bestOmega = candidateOmega;
+          bestPhi = candidatePhi;
+        }
       }
     }
 
-    // 3. Optimization using bounded gradient descent
+    // 5. Polishing using bounded gradient descent from optimal grid seed
     let a = aInit;
-    let omega = omegaInit;
+    let omega = bestOmega;
     let phi = bestPhi;
     let c = cInit;
 
-    const maxIterations = 180;
-
+    const maxIterations = 120;
     for (let iter = 0; iter < maxIterations; iter++) {
       let gradA = 0;
       let gradOmega = 0;
@@ -139,16 +182,16 @@ export class SineFitter {
       gradPhi *= invN;
       gradC *= invN;
 
-      a -= Math.max(-3, Math.min(3, gradA * 0.05));
-      omega -= Math.max(-0.001, Math.min(0.001, gradOmega * 0.00001));
+      a -= Math.max(-4, Math.min(4, gradA * 0.05));
+      omega -= Math.max(-0.0005, Math.min(0.0005, gradOmega * 0.000005));
       phi -= Math.max(-0.05, Math.min(0.05, gradPhi * 0.005));
-      c -= Math.max(-3, Math.min(3, gradC * 0.05));
+      c -= Math.max(-4, Math.min(4, gradC * 0.05));
 
       a = Math.max(1.0, Math.abs(a));
-      if (omega < 0.0005) omega = 0.0005;
+      omega = Math.max(minOmega * 0.8, Math.min(maxOmega * 1.2, omega));
     }
 
-    // 4. Compute metrics: R² (coefficient of determination)
+    // 6. Compute metrics: R² (coefficient of determination)
     let ssTot = 0;
     let ssRes = 0;
     for (const p of pts) {
@@ -161,7 +204,6 @@ export class SineFitter {
     let r2 = ssTot > 1e-6 ? 1 - ssRes / ssTot : 0;
     r2 = Math.max(0, Math.min(1.0, r2));
 
-    const spanX = pts[pts.length - 1].x - pts[0].x;
     const fullCycles = (spanX * omega) / (2 * Math.PI);
     const period = (2 * Math.PI) / omega;
 
@@ -186,11 +228,6 @@ export class SineFitter {
 
   /**
    * Generates reference sine curve points in original canvas coordinates suitable for overlay rendering.
-   *
-   * @param fit FittedSine model.
-   * @param minX Minimum baseline-aligned coordinate.
-   * @param maxX Maximum baseline-aligned coordinate.
-   * @param step Step size in pixels along baseline (default 4px).
    */
   public static generateFittedCurve(
     fit: FittedSine,

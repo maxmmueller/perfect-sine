@@ -14,6 +14,7 @@ export class DrawingController {
   private readonly strokeBuffer: StrokeBuffer;
   private isPointerDown = false;
   private lastEvaluation: StrokeEvaluation | null = null;
+  private liveEvaluation: StrokeEvaluation | null = null;
   private lastValidationMessage: string | null = null;
 
   constructor(
@@ -56,6 +57,7 @@ export class DrawingController {
     if (this.stateMachine.getState() === 'LOCKED') {
       this.stateMachine.reset();
       this.lastEvaluation = null;
+      this.liveEvaluation = null;
       this.lastValidationMessage = null;
     }
 
@@ -72,6 +74,7 @@ export class DrawingController {
     this.isPointerDown = true;
     this.strokeBuffer.clear();
     this.lastEvaluation = null;
+    this.liveEvaluation = null;
     this.lastValidationMessage = null;
 
     const pt = this.getCanvasPoint(e);
@@ -88,6 +91,14 @@ export class DrawingController {
     const pt = this.getCanvasPoint(e);
     const added = this.strokeBuffer.addPoint(pt.x, pt.y);
     if (added) {
+      // Compute live dynamic fit and gradient coloring during active drawing
+      const points = this.strokeBuffer.getPoints();
+      if (points.length >= 15) {
+        const liveFit = SineFitter.fit(points);
+        if (liveFit && liveFit.fullCycles >= 0.4) {
+          this.liveEvaluation = DeviationCalculator.evaluate(points, liveFit, 30);
+        }
+      }
       this.render();
     }
   }
@@ -138,7 +149,8 @@ export class DrawingController {
     }
 
     // Valid wave: compute orthogonal deviations and scoring
-    this.lastEvaluation = DeviationCalculator.evaluate(points, fit, 25);
+    this.lastEvaluation = DeviationCalculator.evaluate(points, fit, 30);
+    this.liveEvaluation = null;
     this.lastValidationMessage = null;
   }
 
@@ -177,7 +189,15 @@ export class DrawingController {
       const r2 = Math.round(this.lastEvaluation.fittedSine.r2 * 100);
       this.view.renderBanner(
         `Accuracy: ${score}%`,
-        `Cycles: ${cycles} | R²: ${r2}% | Touch to retry`
+        `Cycles: ${cycles} | R²: ${r2}% | Touch anywhere to retry`
+      );
+    } else if (this.isPointerDown && this.liveEvaluation) {
+      // Live drawing in progress with real-time gradient coloring
+      this.view.renderEvaluatedStroke(this.liveEvaluation.deviations);
+      const cycles = this.liveEvaluation.fittedSine.fullCycles.toFixed(1);
+      this.view.renderBanner(
+        `Accuracy: ${this.liveEvaluation.score}%`,
+        `Live Cycles: ${cycles} (Drawing...)`
       );
     } else if (this.lastValidationMessage) {
       // Incomplete wave feedback
@@ -186,7 +206,7 @@ export class DrawingController {
       }
       this.view.renderBanner('Incomplete Wave', `${this.lastValidationMessage} Touch to retry`, true);
     } else {
-      // Active drawing
+      // Initial active drawing or idle state
       if (points.length > 0) {
         this.view.renderStroke(points);
       }
