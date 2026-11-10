@@ -3,9 +3,115 @@ import { TiltDetector } from './TiltDetector';
 
 export class SineFitter {
   /**
+   * Trims involuntary pointerup liftoff hooks in baseline-aligned coordinates where movement
+   * along the baseline (u) stalls or reverses while oscillating perpendicularly (v).
+   */
+  public static trimTerminalHook(points: readonly Point[]): Point[] {
+    if (points.length < 15) return [...points];
+
+    const maxInspect = Math.min(25, Math.floor(points.length * 0.18));
+    let cutIndex = points.length;
+
+    for (let i = points.length - 1; i >= points.length - maxInspect; i--) {
+      const p1 = points[i - 1];
+      const p2 = points[i];
+      const du = p2.x - p1.x;
+      const dv = Math.abs(p2.y - p1.y);
+
+      // Hook signature: no forward progress along baseline (du <= 0.8), but vertical excursion (dv >= 2.5)
+      if (du <= 0.8 && dv >= 2.5) {
+        cutIndex = i - 1;
+      } else {
+        break;
+      }
+    }
+
+    return cutIndex >= 10 ? points.slice(0, cutIndex) : [...points];
+  }
+
+  /**
+   * Solves the linear least squares (OLS) system for harmonic parameters (c1, c2, c3)
+   * where y(x) = c1 * sin(omega * x) + c2 * cos(omega * x) + c3.
+   * Returns amplitude A = sqrt(c1^2 + c2^2), phase phi = atan2(c2, c1), offset C = c3, and RSS.
+   */
+  public static solveHarmonicOLS(
+    pts: readonly Point[],
+    omega: number
+  ): { a: number; phi: number; c: number; rss: number } | null {
+    const n = pts.length;
+    if (n < 4) return null;
+
+    let s11 = 0, s12 = 0, s13 = 0;
+    let s22 = 0, s23 = 0, s33 = n;
+    let v1 = 0, v2 = 0, v3 = 0;
+
+    for (let i = 0; i < n; i++) {
+      const angle = omega * pts[i].x;
+      const s = Math.sin(angle);
+      const c = Math.cos(angle);
+      const y = pts[i].y;
+
+      s11 += s * s;
+      s12 += s * c;
+      s13 += s;
+      s22 += c * c;
+      s23 += c;
+
+      v1 += y * s;
+      v2 += y * c;
+      v3 += y;
+    }
+
+    // Determinant of symmetric 3x3 normal equation matrix:
+    // [ s11 s12 s13 ]
+    // [ s12 s22 s23 ]
+    // [ s13 s23 s33 ]
+    const det =
+      s11 * (s22 * s33 - s23 * s23) -
+      s12 * (s12 * s33 - s23 * s13) +
+      s13 * (s12 * s23 - s22 * s13);
+
+    if (Math.abs(det) < 1e-9) return null;
+
+    const invDet = 1 / det;
+
+    const det1 =
+      v1 * (s22 * s33 - s23 * s23) -
+      v2 * (s12 * s33 - s23 * s13) +
+      v3 * (s12 * s23 - s22 * s13);
+
+    const det2 =
+      -v1 * (s12 * s33 - s23 * s13) +
+      v2 * (s11 * s33 - s13 * s13) -
+      v3 * (s11 * s23 - s12 * s13);
+
+    const det3 =
+      v1 * (s12 * s23 - s22 * s13) -
+      v2 * (s11 * s23 - s12 * s13) +
+      v3 * (s11 * s22 - s12 * s12);
+
+    const c1 = det1 * invDet;
+    const c2 = det2 * invDet;
+    const c3 = det3 * invDet;
+
+    const a = Math.hypot(c1, c2);
+    const phi = Math.atan2(c2, c1);
+    const offset = c3;
+
+    let rss = 0;
+    for (let i = 0; i < n; i++) {
+      const yPred = c1 * Math.sin(omega * pts[i].x) + c2 * Math.cos(omega * pts[i].x) + c3;
+      const diff = pts[i].y - yPred;
+      rss += diff * diff;
+    }
+
+    return { a, phi, c: offset, rss };
+  }
+
+  /**
    * Fits a harmonic sine wave model f(u) = A * sin(omega * u + phi) + C to the given points.
-   * Employs peak-to-peak extrema analysis and a multi-scale grid search to accurately identify
-   * the true macroscopic wave frequency, preventing local-minima traps from hand tremors.
+   * Uses Harmonic Linear Least Squares (Lomb-Scargle / OLS Closed Form) across human drawing frequencies,
+   * completely eliminating local-minima traps from peak-counting heuristics or gradient descent.
    *
    * @param rawPoints Sequence of sampled 2D points.
    * @param precomputedTilt Optional pre-computed TiltResult.
@@ -23,8 +129,11 @@ export class SineFitter {
     const tilt = precomputedTilt ?? TiltDetector.detectTilt(rawPoints);
     const transformed = TiltDetector.transformPoints(rawPoints, tilt);
 
+    // 2. Trim terminal liftoff hook in baseline coordinates
+    const cleanedPoints = SineFitter.trimTerminalHook(transformed);
+
     // Sort transformed points along horizontal baseline u
-    const sorted = [...transformed].sort((a, b) => a.x - b.x);
+    const sorted = [...cleanedPoints].sort((a, b) => a.x - b.x);
 
     // Filter points to ensure monotonic x progression
     const pts: Point[] = [];
@@ -40,178 +149,90 @@ export class SineFitter {
       return null;
     }
 
-    // 2. Initial parameter estimates
-    let minY = Infinity;
-    let maxY = -Infinity;
-    let sumY = 0;
-
-    for (const p of pts) {
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
-      sumY += p.y;
-    }
-
-    const cInit = sumY / pts.length;
-    const aInit = Math.max((maxY - minY) / 2, 5.0);
     const spanX = pts[pts.length - 1].x - pts[0].x;
-
-    if (spanX <= 5) {
+    if (spanX <= 10) {
       return null;
     }
 
-    // 3. Robust dominant frequency estimation using Prominent Extrema (Peak/Trough) Analysis
-    const window = Math.max(3, Math.floor(pts.length / 25));
-    const peaks: number[] = [];
-    const troughs: number[] = [];
-    const prominenceThreshold = 0.15 * aInit;
+    // Compute total sum of squares for R²
+    let sumY = 0;
+    for (const p of pts) sumY += p.y;
+    const meanY = sumY / pts.length;
 
-    for (let i = window; i < pts.length - window; i++) {
-      let isMax = true;
-      let isMin = true;
-      for (let j = i - window; j <= i + window; j++) {
-        if (pts[j].y > pts[i].y) isMax = false;
-        if (pts[j].y < pts[i].y) isMin = false;
-      }
-      if (isMax && pts[i].y > cInit + prominenceThreshold) {
-        peaks.push(pts[i].x);
-      }
-      if (isMin && pts[i].y < cInit - prominenceThreshold) {
-        troughs.push(pts[i].x);
-      }
-    }
-
-    // Estimate candidate period T
-    const periodEstimates: number[] = [];
-    for (let i = 1; i < peaks.length; i++) {
-      const d = peaks[i] - peaks[i - 1];
-      if (d > 20) periodEstimates.push(d);
-    }
-    for (let i = 1; i < troughs.length; i++) {
-      const d = troughs[i] - troughs[i - 1];
-      if (d > 20) periodEstimates.push(d);
-    }
-
-    let omegaInit: number;
-
-    if (periodEstimates.length > 0) {
-      periodEstimates.sort((a, b) => a - b);
-      const medianPeriod = periodEstimates[Math.floor(periodEstimates.length / 2)];
-      omegaInit = (2 * Math.PI) / medianPeriod;
-    } else if (peaks.length >= 1 && troughs.length >= 1) {
-      // Half-period from closest peak-to-trough distance
-      let minPTDist = Infinity;
-      for (const p of peaks) {
-        for (const t of troughs) {
-          const dist = Math.abs(p - t);
-          if (dist > 15 && dist < minPTDist) {
-            minPTDist = dist;
-          }
-        }
-      }
-      if (minPTDist !== Infinity) {
-        omegaInit = Math.PI / minPTDist;
-      } else {
-        omegaInit = (2 * Math.PI) / spanX;
-      }
-    } else {
-      // Default to 1 full period over the span
-      omegaInit = (2 * Math.PI) / spanX;
-    }
-
-    // Clamp omegaInit to physically realistic human drawing frequencies
-    // Typically between 0.5 cycles and 8 cycles across the stroke span
-    const minOmega = (0.5 * 2 * Math.PI) / spanX;
-    const maxOmega = (8.0 * 2 * Math.PI) / spanX;
-    omegaInit = Math.max(minOmega, Math.min(maxOmega, omegaInit));
-
-    // 4. Multi-scale Grid Search around omegaInit and phase phi to find global basin of attraction
-    let bestOmega = omegaInit;
-    let bestPhi = 0;
-    let bestErr = Infinity;
-
-    const omegaMultipliers = [0.75, 0.85, 0.93, 1.0, 1.07, 1.15, 1.25];
-    const phiSteps = 24;
-
-    for (const mult of omegaMultipliers) {
-      const candidateOmega = omegaInit * mult;
-      for (let s = 0; s < phiSteps; s++) {
-        const candidatePhi = (s / phiSteps) * (2 * Math.PI);
-        let err = 0;
-        for (const p of pts) {
-          const yPred = aInit * Math.sin(candidateOmega * p.x + candidatePhi) + cInit;
-          const diff = p.y - yPred;
-          err += diff * diff;
-        }
-        if (err < bestErr) {
-          bestErr = err;
-          bestOmega = candidateOmega;
-          bestPhi = candidatePhi;
-        }
-      }
-    }
-
-    // 5. Polishing using bounded gradient descent from optimal grid seed
-    let a = aInit;
-    let omega = bestOmega;
-    let phi = bestPhi;
-    let c = cInit;
-
-    const maxIterations = 120;
-    for (let iter = 0; iter < maxIterations; iter++) {
-      let gradA = 0;
-      let gradOmega = 0;
-      let gradPhi = 0;
-      let gradC = 0;
-
-      for (const p of pts) {
-        const angle = omega * p.x + phi;
-        const sinVal = Math.sin(angle);
-        const cosVal = Math.cos(angle);
-        const yPred = a * sinVal + c;
-        const diff = yPred - p.y;
-
-        gradA += 2 * diff * sinVal;
-        gradOmega += 2 * diff * a * cosVal * p.x;
-        gradPhi += 2 * diff * a * cosVal;
-        gradC += 2 * diff;
-      }
-
-      const invN = 1 / pts.length;
-      gradA *= invN;
-      gradOmega *= invN;
-      gradPhi *= invN;
-      gradC *= invN;
-
-      a -= Math.max(-4, Math.min(4, gradA * 0.05));
-      omega -= Math.max(-0.0005, Math.min(0.0005, gradOmega * 0.000005));
-      phi -= Math.max(-0.05, Math.min(0.05, gradPhi * 0.005));
-      c -= Math.max(-4, Math.min(4, gradC * 0.05));
-
-      a = Math.max(1.0, Math.abs(a));
-      omega = Math.max(minOmega * 0.8, Math.min(maxOmega * 1.2, omega));
-    }
-
-    // 6. Compute metrics: R² (coefficient of determination)
     let ssTot = 0;
-    let ssRes = 0;
     for (const p of pts) {
-      ssTot += (p.y - cInit) * (p.y - cInit);
-      const yPred = a * Math.sin(omega * p.x + phi) + c;
-      const res = p.y - yPred;
-      ssRes += res * res;
+      const diff = p.y - meanY;
+      ssTot += diff * diff;
     }
 
-    let r2 = ssTot > 1e-6 ? 1 - ssRes / ssTot : 0;
+    // 3. Dense Harmonic Frequency Scan (0.5 to 6.5 cycles across stroke span)
+    const minCycles = 0.5;
+    const maxCycles = 6.5;
+    const cycleStep = 0.03;
+
+    let bestOmega = (1.0 * 2 * Math.PI) / spanX;
+    let bestRss = Infinity;
+    let bestFit = SineFitter.solveHarmonicOLS(pts, bestOmega);
+    if (bestFit) bestRss = bestFit.rss;
+
+    for (let cycles = minCycles; cycles <= maxCycles; cycles += cycleStep) {
+      const omega = (cycles * 2 * Math.PI) / spanX;
+      const res = SineFitter.solveHarmonicOLS(pts, omega);
+      if (res && res.rss < bestRss) {
+        bestRss = res.rss;
+        bestOmega = omega;
+        bestFit = res;
+      }
+    }
+
+    if (!bestFit) {
+      return null;
+    }
+
+    // 4. Golden Section Search Refinement around bestOmega
+    const deltaOmega = (cycleStep * 2 * Math.PI) / spanX;
+    let aRange = Math.max((0.3 * 2 * Math.PI) / spanX, bestOmega - deltaOmega);
+    let bRange = bestOmega + deltaOmega;
+    const gr = (Math.sqrt(5) - 1) / 2;
+
+    let cRange = bRange - gr * (bRange - aRange);
+    let dRange = aRange + gr * (bRange - aRange);
+
+    for (let iter = 0; iter < 18; iter++) {
+      const resC = SineFitter.solveHarmonicOLS(pts, cRange);
+      const resD = SineFitter.solveHarmonicOLS(pts, dRange);
+      const rssC = resC ? resC.rss : Infinity;
+      const rssD = resD ? resD.rss : Infinity;
+
+      if (rssC < rssD) {
+        bRange = dRange;
+        dRange = cRange;
+        cRange = bRange - gr * (bRange - aRange);
+      } else {
+        aRange = cRange;
+        cRange = dRange;
+        dRange = aRange + gr * (bRange - aRange);
+      }
+    }
+
+    const optimalOmega = (aRange + bRange) / 2;
+    const optimalFit = SineFitter.solveHarmonicOLS(pts, optimalOmega);
+    if (!optimalFit) {
+      return null;
+    }
+
+    // 5. Compute metrics: R² (coefficient of determination)
+    let r2 = ssTot > 1e-6 ? 1 - optimalFit.rss / ssTot : 0;
     r2 = Math.max(0, Math.min(1.0, r2));
 
-    const fullCycles = (spanX * omega) / (2 * Math.PI);
-    const period = (2 * Math.PI) / omega;
+    const fullCycles = (spanX * optimalOmega) / (2 * Math.PI);
+    const period = (2 * Math.PI) / optimalOmega;
 
     return {
-      amplitude: a,
-      frequency: omega,
-      phase: phi,
-      offset: c,
+      amplitude: optimalFit.a,
+      frequency: optimalOmega,
+      phase: optimalFit.phi,
+      offset: optimalFit.c,
       tilt,
       period,
       fullCycles,

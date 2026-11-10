@@ -98,6 +98,28 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     );
   });
 
+  it('should reject stroke with insufficient amplitude (< 20px) upon pointer up', () => {
+    const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+    controller.handlePointerDown(createPointerEvent('pointerdown', 0, 200));
+
+    // Simulate 2 periods with only 5px amplitude (flat line exploit)
+    const L = 150;
+    for (let x = 4; x <= 300; x += 4) {
+      const y = 200 + 5 * Math.sin((x / L) * 2 * Math.PI);
+      controller.handlePointerMove(createPointerEvent('pointermove', x, y));
+    }
+
+    controller.handlePointerUp(createPointerEvent('pointerup', 300, 200));
+
+    expect(stateMachine.getState()).toBe('LOCKED');
+    expect(controller.getLastEvaluation()).toBeNull();
+    expect(mockView.renderBanner).toHaveBeenCalledWith(
+      'Amplitude Too Flat',
+      expect.stringContaining('Wave amplitude is too small'),
+      true
+    );
+  });
+
   it('should evaluate a valid full-cycle sine wave and notify callback', () => {
     const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
       onEvaluationComplete,
