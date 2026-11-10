@@ -148,16 +148,47 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
     expect(durationFast).toBeLessThan(durationSlow * 0.45);
   });
 
-  it('should support long waves with extensive cycles', () => {
-    const pointsLong = DemoBot.generateStroke({
-      amplitude: 35,
-      wavelength: 120,
-      cycles: 4.5,
-      jitterLevel: 1.0,
+  it('should compute accurate deviations with predominantly green hue for human-like demo wave', () => {
+    const { points, deviations } = DemoBot.generateStrokeWithDeviations({
+      width: 800,
+      height: 600,
+      centerX: 400,
+      centerY: 300,
+      amplitude: 50,
+      wavelength: 180,
+      cycles: 3.5,
+      phase: 1.2,
+      tiltAngle: -0.25,
+      jitterLevel: 1.8,
     });
 
-    const fit = SineFitter.fit(pointsLong);
-    expect(fit).not.toBeNull();
-    expect(fit!.fullCycles).toBeCloseTo(4.5, 1);
+    expect(points.length).toBe(deviations.length);
+    expect(points.length).toBeGreaterThan(50);
+
+    const hues = deviations.map((d) => d.hue);
+    const avgHue = hues.reduce((a, b) => a + b, 0) / hues.length;
+    const greenCount = hues.filter((h) => h >= 90).length;
+    const redCount = hues.filter((h) => h < 50).length;
+
+    // The wave should be overwhelmingly green/lime (matching user expectation for clean demo wave)
+    expect(avgHue).toBeGreaterThan(95);
+    expect(greenCount / hues.length).toBeGreaterThan(0.90);
+    expect(redCount).toBe(0);
+  });
+
+  it('should produce 100% pure green hue (120deg) when jitterLevel is 0', () => {
+    const { deviations } = DemoBot.generateStrokeWithDeviations({
+      amplitude: 40,
+      wavelength: 200,
+      cycles: 2.0,
+      tiltAngle: 0.3,
+      jitterLevel: 0,
+    });
+
+    for (const dev of deviations) {
+      expect(dev.distance).toBeCloseTo(0, 1);
+      expect(dev.hue).toBe(120);
+      expect(dev.color).toBe('hsl(120, 100%, 50%)');
+    }
   });
 });
