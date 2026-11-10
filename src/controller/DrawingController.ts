@@ -473,7 +473,7 @@ export class DrawingController {
       // Live drawing in progress with real-time gradient coloring
       this.view.renderEvaluatedStroke(this.liveEvaluation.deviations);
       const liveAccuracy = this.liveEvaluation.accuracy;
-      this.view.renderBanner(`Accuracy: ${liveAccuracy}%`);
+      this.view.renderBanner(`${liveAccuracy}%`);
     } else if (this.isDemoActive && this.currentDemoDeviations.length >= 2) {
       // Demo drawing in progress: render with dynamic color gradient, NO scoring/results banner
       this.view.renderEvaluatedStroke(this.currentDemoDeviations);

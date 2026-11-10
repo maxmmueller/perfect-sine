@@ -258,7 +258,7 @@ export class CanvasView {
     const heroFontSize = isMobile ? 38 : 52;
     const subFontSize = isMobile ? 15 : 20;
 
-    // 1. Groß oben: Hero Headline ONLY Accuracy
+    // 1. Groß oben: Hero Headline ONLY the percentage number (no "Accuracy:" label)
     let accColor = '#22c55e'; // green
     if (state.accuracy < 50) {
       accColor = '#ef4444'; // red
@@ -269,9 +269,9 @@ export class CanvasView {
     this.ctx.textAlign = 'center';
     this.ctx.font = `800 ${heroFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     this.ctx.fillStyle = accColor;
-    this.ctx.fillText(`Accuracy: ${state.accuracy}%`, cx, isMobile ? 54 : 66);
+    this.ctx.fillText(`${state.accuracy}%`, cx, isMobile ? 54 : 66);
 
-    // 2. Unten drunter: Animated calculation from sine length to Score (no cycles text, no overlapping mini-wave)
+    // 2. Unten drunter: Animated calculation from sine length to Score (clean, no extra labels or filler text)
     const calcY = isMobile ? 92 : 110;
 
     // Optional celebratory ripple for high & legendary tiers
@@ -286,21 +286,17 @@ export class CanvasView {
       this.ctx.stroke();
     }
 
-    // Calculation text formatting based on animation phase (clean, no cycles count)
+    // Calculation text formatting: smooth count-up to target score (no filler words like "Measuring..." or "Length Bonus")
     let scoreColor = '#38bdf8';
     if (state.targetScore < 300) scoreColor = '#ef4444';
     else if (state.targetScore < 700) scoreColor = '#f59e0b';
     else if (state.targetScore < 1000) scoreColor = '#22c55e';
     else scoreColor = '#facc15';
 
-    if (state.phase === 'measuring') {
-      this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      this.ctx.fillStyle = '#94a3b8';
-      this.ctx.fillText('Measuring Wave Length...', cx, calcY);
-    } else if (state.phase === 'multiplying') {
+    if (state.phase === 'measuring' || state.phase === 'multiplying') {
       this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       this.ctx.fillStyle = '#cbd5e1';
-      this.ctx.fillText(`Length Bonus ➔ Score: ${state.currentScore.toLocaleString()} pts`, cx, calcY);
+      this.ctx.fillText(`Score: ${state.currentScore.toLocaleString()} pts`, cx, calcY);
     } else {
       // Celebrating or settled: highlight score with scale bounce
       const finalFontSize = Math.round(subFontSize * state.scaleFactor);
@@ -423,8 +419,8 @@ export class CanvasView {
       return;
     }
 
-    // If title starts with Accuracy:
-    const accMatch = title.match(/^Accuracy:\s*(\d+%?)/i);
+    // If title starts with Accuracy or is a percentage number:
+    const accMatch = title.match(/^(?:Accuracy:\s*)?(\d+%?)$/i);
     if (accMatch) {
       const accVal = parseInt(accMatch[1].replace('%', ''), 10);
       let accColor = '#22c55e';
@@ -436,7 +432,7 @@ export class CanvasView {
       this.ctx.textAlign = 'center';
       this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       this.ctx.fillStyle = accColor;
-      this.ctx.fillText(title, cx, isMobile ? 54 : 66);
+      this.ctx.fillText(`${accVal}%`, cx, isMobile ? 54 : 66);
 
       if (subtitle) {
         const subFontSize = isMobile ? 16 : 20;
