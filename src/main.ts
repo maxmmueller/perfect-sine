@@ -5,6 +5,8 @@ import { DrawingController } from './controller/DrawingController';
 import { SessionHistoryService } from './model/SessionHistoryService';
 import { HudView } from './view/HudView';
 import { UnifiedEnsembleScoreStrategy } from './model/scoring/UnifiedEnsembleScoreStrategy';
+import { CurveRecorderService } from './model/CurveRecorderService';
+import { CurveRecorderView } from './view/CurveRecorderView';
 
 function initializeApp(): void {
   const canvas = document.getElementById('sine-canvas') as HTMLCanvasElement;
@@ -15,6 +17,7 @@ function initializeApp(): void {
   const sessionService = new SessionHistoryService();
   const hudView = new HudView(sessionService);
   const finalStrategy = new UnifiedEnsembleScoreStrategy();
+  const recorderService = new CurveRecorderService();
 
   const stateMachine = new GameStateMachine();
   const strokeBuffer = new StrokeBuffer(2.0);
@@ -32,6 +35,24 @@ function initializeApp(): void {
         strategyId: finalStrategy.id,
       });
     },
+    onStrokeComplete: (stroke) => {
+      if (recorderService.isAutoRecordEnabled() && stroke.points.length >= 2) {
+        recorderService.addCurve({
+          points: stroke.points,
+          evaluation: stroke.evaluation,
+          validationMessage: stroke.validationMessage,
+        });
+      }
+    },
+  });
+
+  const recorderView = new CurveRecorderView(recorderService, {
+    onReplayRequested: (points) => {
+      controller.replayStroke(points, true);
+    },
+    onRecordCurrentRequested: () => {
+      return controller.getLastDrawnStroke();
+    },
   });
 
   // Debug log state transitions
@@ -44,6 +65,8 @@ function initializeApp(): void {
     controller,
     sessionService,
     hudView,
+    recorderService,
+    recorderView,
   };
 
   // Start demo mode immediately on launch (user requirement)

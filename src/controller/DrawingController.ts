@@ -33,8 +33,18 @@ export class DrawingController {
   private liveEvaluation: StrokeEvaluation | null = null;
   private lastValidationMessage: string | null = null;
   private coordinateFrame: CoordinateFrame | null = null;
+  private lastDrawnStroke: {
+    readonly points: readonly Point[];
+    readonly evaluation: StrokeEvaluation | null;
+    readonly validationMessage: string | null;
+  } | null = null;
   private readonly onEvaluationComplete?: (evaluation: StrokeEvaluation) => void;
   private readonly onMultiEvaluationComplete?: (evaluations: ScorerEvaluationItem[]) => void;
+  private readonly onStrokeComplete?: (stroke: {
+    readonly points: readonly Point[];
+    readonly evaluation: StrokeEvaluation | null;
+    readonly validationMessage: string | null;
+  }) => void;
   private readonly onReset?: () => void;
   private demoAnimationId: number | null = null;
   private demoTimeoutId: number | null = null;
@@ -55,6 +65,11 @@ export class DrawingController {
       strategyManager?: ScoreStrategyManager;
       onEvaluationComplete?: (evaluation: StrokeEvaluation) => void;
       onMultiEvaluationComplete?: (evaluations: ScorerEvaluationItem[]) => void;
+      onStrokeComplete?: (stroke: {
+        readonly points: readonly Point[];
+        readonly evaluation: StrokeEvaluation | null;
+        readonly validationMessage: string | null;
+      }) => void;
       onReset?: () => void;
     }
   ) {
@@ -66,6 +81,7 @@ export class DrawingController {
     this.scoreStrategy = options?.scoreStrategy ?? options?.strategyManager?.getActiveStrategy() ?? new UnifiedEnsembleScoreStrategy();
     this.onEvaluationComplete = options?.onEvaluationComplete;
     this.onMultiEvaluationComplete = options?.onMultiEvaluationComplete;
+    this.onStrokeComplete = options?.onStrokeComplete;
     this.onReset = options?.onReset;
 
     this.bindEvents();
@@ -187,6 +203,15 @@ export class DrawingController {
       this.stateMachine.finishDrawing();
       this.evaluateStroke();
       this.stateMachine.setEvaluated();
+
+      const points = this.strokeBuffer.getPoints();
+      this.lastDrawnStroke = {
+        points: [...points],
+        evaluation: this.lastEvaluation,
+        validationMessage: this.lastValidationMessage,
+      };
+      this.onStrokeComplete?.(this.lastDrawnStroke);
+
       this.render();
     }
   }
@@ -369,7 +394,9 @@ export class DrawingController {
     // Mixed multi-error profile: every demo wave naturally contains a realistic mixture of
     // pristine (~35% green), wobbly (~30% lime/yellow), uneven (~20% amber/orange), and runaway (~15% red)
     let defaultProfile: 'pristine' | 'wobbly' | 'uneven' | 'runaway' | 'mixed' = 'mixed';
-    if (
+    if (customOptions?.runawayDrift && Math.abs(customOptions.runawayDrift) >= 20) {
+      defaultProfile = 'runaway';
+    } else if (
       customOptions?.jitterLevel !== undefined &&
       customOptions.jitterLevel <= 2.0 &&
       (!customOptions.runawayDrift || customOptions.runawayDrift === 0)
@@ -604,6 +631,74 @@ export class DrawingController {
 
   public isDemoPlaying(): boolean {
     return this.isDemoActive;
+  }
+
+  public getLastDrawnStroke(): {
+    readonly points: readonly Point[];
+    readonly evaluation: StrokeEvaluation | null;
+    readonly validationMessage: string | null;
+  } | null {
+    return this.lastDrawnStroke;
+  }
+
+  public replayStroke(points: readonly Point[], animated: boolean = true): void {
+    if (points.length < 2) return;
+    this.stopDemo();
+    this.reset();
+
+    if (!animated) {
+      this.stateMachine.startDrawing();
+      for (const pt of points) {
+        this.strokeBuffer.addPoint(pt.x, pt.y, pt.time);
+      }
+      this.stateMachine.finishDrawing();
+      this.evaluateStroke();
+      this.stateMachine.setEvaluated();
+      this.lastDrawnStroke = {
+        points: [...points],
+        evaluation: this.lastEvaluation,
+        validationMessage: this.lastValidationMessage,
+      };
+      this.render();
+      return;
+    }
+
+    this.stateMachine.startDrawing();
+    let index = 0;
+    const startTime = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const duration = points[points.length - 1].time || 1200;
+
+    const step = (timestamp: number) => {
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(1.0, elapsed / duration);
+      const targetCount = Math.floor(progress * points.length);
+
+      while (index < targetCount && index < points.length) {
+        this.strokeBuffer.addPoint(points[index].x, points[index].y, points[index].time);
+        index++;
+      }
+      this.render();
+
+      if (progress < 1.0) {
+        if (typeof requestAnimationFrame !== 'undefined') {
+          requestAnimationFrame(step);
+        }
+      } else {
+        this.stateMachine.finishDrawing();
+        this.evaluateStroke();
+        this.stateMachine.setEvaluated();
+        this.lastDrawnStroke = {
+          points: [...points],
+          evaluation: this.lastEvaluation,
+          validationMessage: this.lastValidationMessage,
+        };
+        this.render();
+      }
+    };
+
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(step);
+    }
   }
 
   public getLastEvaluation(): StrokeEvaluation | null {
