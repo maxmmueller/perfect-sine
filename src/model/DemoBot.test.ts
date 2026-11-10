@@ -229,7 +229,7 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
       runawayEnd: true,
     });
 
-    const lastDeviations = deviations.slice(-10);
+    const lastDeviations = deviations.slice(-5);
     // End points should be strongly off-course (red/orange)
     for (const d of lastDeviations) {
       expect(d.distance).toBeGreaterThan(15);

@@ -138,4 +138,79 @@ describe('PeriodValidator (Boundary Value & Period Verification)', () => {
     expect(res.isValid).toBe(true);
     expect(res.fullCycles).toBeCloseTo(1.0, 3);
   });
+
+  it('should reject a multi-cycle zigzag/triangle wave with "Not a sine"', () => {
+    // Generate a 4-cycle zigzag wave with sharp apexes and straight flanks (amplitude 40px)
+    const points: Point[] = [];
+    const period = 120;
+    const cycles = 4;
+    const A = 40;
+    const totalPoints = cycles * 50;
+
+    for (let i = 0; i < totalPoints; i++) {
+      const x = (i / (totalPoints - 1)) * (period * cycles);
+      const phase = ((x % period) + period) % period;
+      let y: number;
+      if (phase < period / 4) {
+        y = (phase / (period / 4)) * A;
+      } else if (phase < (3 * period) / 4) {
+        y = A - ((phase - period / 4) / (period / 4)) * 2 * A;
+      } else {
+        y = -A + ((phase - (3 * period) / 4) / (period / 4)) * A;
+      }
+      points.push({ x, y: 150 + y });
+    }
+
+    const omega = (2 * Math.PI) / period;
+    const res = PeriodValidator.validate(points, omega);
+    expect(res.isValid).toBe(false);
+    expect(res.message).toMatch(/Not a sine|zigzag/i);
+  });
+
+  it('should reject a 1-cycle triangle wave with sharp cusps', () => {
+    const points: Point[] = [];
+    const period = 160;
+    const A = 40;
+    const totalPoints = 60;
+
+    for (let i = 0; i < totalPoints; i++) {
+      const x = (i / (totalPoints - 1)) * period;
+      const phase = ((x % period) + period) % period;
+      let y: number;
+      if (phase < period / 4) {
+        y = (phase / (period / 4)) * A;
+      } else if (phase < (3 * period) / 4) {
+        y = A - ((phase - period / 4) / (period / 4)) * 2 * A;
+      } else {
+        y = -A + ((phase - (3 * period) / 4) / (period / 4)) * A;
+      }
+      points.push({ x, y: 100 + y });
+    }
+
+    const omega = (2 * Math.PI) / period;
+    const res = PeriodValidator.validate(points, omega);
+    expect(res.isValid).toBe(false);
+    expect(res.message).toMatch(/Not a sine|zigzag/i);
+  });
+
+  it('should accept a genuine sine wave with motor tremor jitter', () => {
+    const points: Point[] = [];
+    const period = 150;
+    const cycles = 2.5;
+    const A = 45;
+    const omega = (2 * Math.PI) / period;
+    const totalPoints = Math.round(cycles * 60);
+
+    for (let i = 0; i < totalPoints; i++) {
+      const x = (i / (totalPoints - 1)) * (period * cycles);
+      // Realistic tremor (+/- 3px)
+      const jitter = ((i % 5) - 2) * 1.2;
+      const y = 150 + A * Math.sin(omega * x) + jitter;
+      points.push({ x, y });
+    }
+
+    const res = PeriodValidator.validate(points, omega);
+    expect(res.isValid).toBe(true);
+    expect(res.fullCycles).toBeCloseTo(cycles, 1);
+  });
 });
