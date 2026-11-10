@@ -359,9 +359,11 @@ export class DrawingController {
     const bottomSafeMargin = 60;
     const usableHeight = Math.max(160, height - topSafeMargin - bottomSafeMargin);
 
-    // Filter visible historical waves that must never be overlapped
+    // Filter visible historical waves that must never be overlapped.
+    // The newly drawn wave must strictly clear the most recent active wave
+    // (older historical waves are already faded and the new wave gracefully alternates into their zone).
     let visiblePointsList = this.demoHistory
-      .filter((w) => w.alpha >= 0.08 && w.deviations.length >= 2)
+      .filter((w, idx) => (idx === this.demoHistory.length - 1 || w.alpha >= 0.50) && w.deviations.length >= 2)
       .map((w) => w.deviations.map((d) => d.point));
 
     // Mixed multi-error profile: every demo wave naturally contains a realistic mixture of
@@ -390,91 +392,53 @@ export class DrawingController {
     const maxAttempts = customOptions?.centerY !== undefined ? 1 : 24;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      // If historical waves are taking up too much room after 20 attempts, prune oldest
-      if (attempt === 20 && this.demoHistory.length > 1) {
+      // If historical waves are taking up too much room after 12 attempts, prune oldest
+      if (attempt === 12 && this.demoHistory.length > 1) {
         this.demoHistory.shift();
         visiblePointsList = this.demoHistory
-          .filter((w) => w.alpha >= 0.08 && w.deviations.length >= 2)
+          .filter((w) => w.alpha >= 0.20 && w.deviations.length >= 2)
           .map((w) => w.deviations.map((d) => d.point));
-      } else if (attempt === 23 && this.demoHistory.length > 0) {
+      } else if (attempt === 20 && this.demoHistory.length > 0) {
         this.demoHistory = [];
         visiblePointsList = [];
       }
 
-      const hasHistory = visiblePointsList.length > 0;
-      const crowded = visiblePointsList.length >= 2;
+      // 1. Amplitude a: authentic healthy presence across canvas (42-56px, never tiny 20px stubs)
+      const amplitude = customOptions?.amplitude ?? (44 + Math.random() * 12);
 
-      // 1. Amplitude a: compact when canvas is crowded
-      const amplitude = customOptions?.amplitude ?? (
-        crowded ? 20 + Math.random() * 16 : hasHistory ? 22 + Math.random() * 22 : 24 + Math.random() * 32
-      );
-
-      // 2. Frequency / Wavelength b: 90px to 150px when crowded
-      const wavelength = customOptions?.wavelength ?? (
-        crowded ? 90 + Math.random() * 60 : hasHistory ? 100 + Math.random() * 110 : 110 + Math.random() * 150
-      );
+      // 2. Frequency / Wavelength b: natural fluid sine wave wavelength (180-250px)
+      const wavelength = customOptions?.wavelength ?? (180 + Math.random() * 70);
 
       // 3. Initial phase c: [0, 2*PI]
       const phase = customOptions?.phase ?? Math.random() * Math.PI * 2;
 
-      // 4. Tilt: subtle when crowded
-      const hasTilt = customOptions?.tiltAngle !== undefined ? true : Math.random() < (crowded ? 0.25 : 0.40);
-      const tiltSign = Math.random() < 0.5 ? 1 : -1;
-      const defaultTiltAngle = hasTilt
-        ? tiltSign * (crowded ? 0.05 + Math.random() * 0.08 : hasHistory ? 0.08 + Math.random() * 0.12 : 0.12 + Math.random() * 0.18)
-        : (Math.random() - 0.5) * 0.04;
+      // 4. Tilt: subtle natural human hand angle
+      const defaultTiltAngle = Math.random() < 0.45 ? (Math.random() - 0.5) * 0.16 : 0;
       const tiltAngle = customOptions?.tiltAngle ?? defaultTiltAngle;
 
-      // 5. Cycles: compact (1.1 - 1.6) when crowded, 1.3 - 2.1 with 1 wave, up to 3.5 when open
-      let cycles: number;
-      if (customOptions?.cycles !== undefined) {
-        cycles = customOptions.cycles;
-      } else if (crowded) {
-        cycles = 1.1 + Math.random() * 0.5; // 1.1 - 1.6 cycles
-      } else if (hasHistory) {
-        cycles = 1.3 + Math.random() * 0.8; // 1.3 - 2.1 cycles
-      } else {
-        const cDice = Math.random();
-        cycles = cDice < 0.35
-          ? 1.4 + Math.random() * 0.8 // short
-          : cDice < 0.70
-          ? 2.2 + Math.random() * 0.9 // medium
-          : 3.1 + Math.random() * 0.8; // long
-      }
+      // 5. Cycles: generous harmonic cycles (2.0 - 3.2 cycles sweeping across screen)
+      const cycles = customOptions?.cycles ?? (2.0 + Math.random() * 1.2);
 
-      // 6. Center coordinates: cycle through spatial sectors
-      let candidateCenterX = width * 0.50;
-      let candidateCenterY = topSafeMargin + usableHeight * 0.50;
+      // 6. Center coordinates: spacious alternating upper / lower zones to avoid clutter and overlap
+      const candidateCenterX = customOptions?.centerX ?? (width * (0.48 + (Math.random() - 0.5) * 0.08));
+      let candidateCenterY: number;
 
-      if (customOptions?.centerX !== undefined) {
-        candidateCenterX = customOptions.centerX;
-      }
       if (customOptions?.centerY !== undefined) {
         candidateCenterY = customOptions.centerY;
-      } else if (hasHistory) {
-        const slot = attempt % 6;
-        if (slot === 0) {
-          candidateCenterX = width * (0.32 + Math.random() * 0.10);
-          candidateCenterY = topSafeMargin + usableHeight * (0.20 + Math.random() * 0.10);
-        } else if (slot === 1) {
-          candidateCenterX = width * (0.58 + Math.random() * 0.10);
-          candidateCenterY = topSafeMargin + usableHeight * (0.70 + Math.random() * 0.10);
-        } else if (slot === 2) {
-          candidateCenterX = width * (0.58 + Math.random() * 0.10);
-          candidateCenterY = topSafeMargin + usableHeight * (0.20 + Math.random() * 0.10);
-        } else if (slot === 3) {
-          candidateCenterX = width * (0.32 + Math.random() * 0.10);
-          candidateCenterY = topSafeMargin + usableHeight * (0.70 + Math.random() * 0.10);
-        } else if (slot === 4) {
-          candidateCenterX = width * 0.50;
-          candidateCenterY = topSafeMargin + usableHeight * (0.18 + Math.random() * 0.08);
-        } else {
-          candidateCenterX = width * 0.50;
-          candidateCenterY = topSafeMargin + usableHeight * (0.80 + Math.random() * 0.08);
-        }
+      } else if (visiblePointsList.length > 0) {
+        // Locate the most prominent visible previous wave
+        const prevWave = visiblePointsList[visiblePointsList.length - 1];
+        const avgY = prevWave.reduce((sum, p) => sum + p.y, 0) / prevWave.length;
+        const midY = topSafeMargin + usableHeight * 0.50;
+        // Alternate zones: if previous wave was in upper half, place in lower half, and vice versa
+        const targetFraction = avgY < midY ? 0.70 : 0.30;
+        const offset = attempt === 0 ? (Math.random() - 0.5) * 0.06 : (attempt % 2 === 0 ? -0.08 : 0.08);
+        candidateCenterY = topSafeMargin + usableHeight * Math.max(0.22, Math.min(0.78, targetFraction + offset));
       } else {
-        candidateCenterX = width * (0.44 + (Math.random() - 0.5) * 0.14);
-        candidateCenterY = topSafeMargin + usableHeight * (0.30 + Math.random() * 0.40);
+        // Open canvas: place comfortably in upper (32%), lower (68%), or center (50%)
+        const yDice = Math.random();
+        const frac = yDice < 0.45 ? 0.32 : yDice < 0.80 ? 0.68 : 0.50;
+        candidateCenterY = topSafeMargin + usableHeight * (frac + (Math.random() - 0.5) * 0.06);
       }
 
       const candidateResult = DemoBot.generateStrokeWithDeviations({
@@ -494,9 +458,9 @@ export class DrawingController {
 
       if (candidateResult.points.length === 0) continue;
 
-      // Verify zero overlap against all visible historical waves
+      // Verify zero overlap against visible historical waves
       let overlaps = false;
-      const minDistance = crowded ? 26 : 32;
+      const minDistance = 26;
       for (const histPoints of visiblePointsList) {
         if (this.checkWavesOverlap(candidateResult.points, histPoints, minDistance)) {
           overlaps = true;

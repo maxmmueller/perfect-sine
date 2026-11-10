@@ -117,24 +117,47 @@ export class DemoBot {
     // - Pristine: confident, accurate stroke segments (~35% green, hue >= 90°)
     // - Wobbly: natural neuromuscular hand tremor (~30% lime & yellow, hue 60°-90°)
     // - Uneven: asymmetric peak overshoot and amplitude sag (~20% amber & orange, hue 25°-60°)
-    // - Runaway: hand slip and trajectory drift (~15% deep orange & red, hue 0°-25°)
-    const mixedRunawayCenter = 0.38 + rng() * 0.36;
-    const mixedRunawaySpread = 0.135;
-    const mixedRunawayDir = rng() < 0.5 ? 1 : -1;
-    const mixedRunawayPeakOffset = mixedRunawayDir * (31 + rng() * 6);
-    const mixedRunawayEnd = rng() < 0.25;
+    // - Runaway: crest overshoot ("aus dem Ufer laufen") (~15% deep orange & red, hue 0°-25°)
+    // Anchor runaway and uneven errors to actual wave crests to maintain harmonic sinusoidal form
+    const crests: { p: number; sign: number }[] = [];
+    const numSamples = 200;
+    for (let i = 0; i < numSamples; i++) {
+      const sampleU = (i / numSamples) * totalLength;
+      const sampleP = sampleU / totalLength;
+      const sampleAng = omega * sampleU + initialPhase;
+      if (Math.abs(Math.cos(sampleAng)) < 0.08) {
+        const sign = Math.sin(sampleAng) > 0 ? 1 : -1;
+        if (crests.length === 0 || sampleP - crests[crests.length - 1].p > 0.14) {
+          crests.push({ p: sampleP, sign });
+        }
+      }
+    }
 
-    const mixedUnevenCenter = mixedRunawayCenter < 0.55 ? 0.74 + rng() * 0.12 : 0.18 + rng() * 0.12;
-    const mixedUnevenSpread = 0.145;
+    const midCrests = crests.filter((c) => c.p >= 0.25 && c.p <= 0.75);
+    const runawayCrest = midCrests.length > 0
+      ? midCrests[Math.floor(rng() * midCrests.length)]
+      : (crests[Math.floor(crests.length / 2)] || { p: 0.5, sign: 1 });
+
+    const otherCrests = crests.filter((c) => Math.abs(c.p - runawayCrest.p) > 0.18);
+    const unevenCrest = otherCrests.length > 0
+      ? otherCrests[Math.floor(rng() * otherCrests.length)]
+      : { p: runawayCrest.p < 0.5 ? 0.75 : 0.25, sign: -runawayCrest.sign };
+
+    const mixedRunawayCenter = runawayCrest.p;
+    const mixedRunawaySpread = 0.14;
+    const mixedRunawayOvershoot = 30 + rng() * 4;
+
+    const mixedUnevenCenter = unevenCrest.p;
+    const mixedUnevenSpread = 0.15;
     const mixedUnevenDir = rng() < 0.5 ? 1 : -1;
-    const mixedUnevenAmpDelta = mixedUnevenDir * (21 + rng() * 5);
+    const mixedUnevenDelta = mixedUnevenDir * (19 + rng() * 4);
 
-    const mixedWobblyCenter = (mixedRunawayCenter + mixedUnevenCenter) / 2 > 0.5 ? 0.22 + rng() * 0.20 : 0.65 + rng() * 0.20;
-    const mixedWobblySpread = 0.26;
-    const mixedTremorFreq = omega * 4.2;
+    const mixedWobblyCenter = (mixedRunawayCenter + mixedUnevenCenter) / 2 > 0.5 ? 0.22 : 0.74;
+    const mixedWobblySpread = 0.28;
+    const mixedTremorFreq = omega * 4.0;
     const mixedTremorPhase = rng() * Math.PI * 2;
     const mixedDriftPhase = rng() * Math.PI * 2;
-    const mixedDriftAmp = 5.0;
+    const mixedDriftAmp = 3.2;
 
     let ampModDepth = 0;
     let smoothTremorAmp = 0;
@@ -209,34 +232,31 @@ export class DemoBot {
       let localY: number;
 
       if (profile === 'mixed') {
-        // 1. Runaway slip envelope (covers ~15% into deep orange & red, hue 0°-25°)
-        let runawayVal = 0;
-        if (mixedRunawayEnd) {
-          const sigmoid = 1 / (1 + Math.exp(-12 * (progress - mixedRunawayCenter)));
-          runawayVal = mixedRunawayPeakOffset * sigmoid;
-        } else {
-          const dRun = (progress - mixedRunawayCenter) / mixedRunawaySpread;
-          runawayVal = mixedRunawayPeakOffset * Math.exp(-0.5 * dRun * dRun);
-        }
+        // 1. Runaway crest overshoot ("aus dem Ufer laufen") - covers ~15% into deep orange & red (0°-25°)
+        const dRun = (progress - mixedRunawayCenter) / mixedRunawaySpread;
+        const runawayAmp = mixedRunawayOvershoot * Math.exp(-0.5 * dRun * dRun);
 
-        // 2. Uneven peak modulation envelope (covers ~20% into amber & orange, hue 25°-60°)
+        // 2. Uneven peak amplitude modulation - covers ~20% into amber & orange (25°-60°)
         const dUneven = (progress - mixedUnevenCenter) / mixedUnevenSpread;
-        const unevenWeight = Math.exp(-0.5 * dUneven * dUneven);
-        const localAmp = amplitude + mixedUnevenAmpDelta * unevenWeight;
+        const unevenAmp = mixedUnevenDelta * Math.exp(-0.5 * dUneven * dUneven);
 
-        // 3. Wobbly tremor envelope (covers ~30% into lime & yellow, hue 60°-90°)
+        // Organic effective amplitude preserving sinusoidal baseline crossings
+        const localAmp = amplitude + runawayAmp + unevenAmp;
+
+        // 3. Subtle timing & momentum skew
+        const timingMod = 0.05 * Math.sin(0.5 * nominalAngle);
+        const skewMod = 0.03 * Math.sin(2 * nominalAngle);
+
+        // 4. Wobbly neuromuscular hand tremor - covers ~30% into lime & yellow (60°-90°)
         const dWob = (progress - mixedWobblyCenter) / mixedWobblySpread;
         const wobWeight = Math.exp(-0.5 * dWob * dWob);
-        const tremorAmp = 4.2 + wobWeight * 8.5;
+        const tremorAmp = 4.2 + wobWeight * 5.2;
         const tremor = tremorAmp * Math.sin(mixedTremorFreq * u + mixedTremorPhase);
 
-        // 4. Arm pivot drift
+        // 5. Arm/wrist pivot drift
         const drift = mixedDriftAmp * Math.sin(progress * Math.PI + mixedDriftPhase);
 
-        // 5. Asymmetric momentum skew
-        const skew = 0.05 * Math.sin(2 * nominalAngle);
-
-        localY = localAmp * Math.sin(nominalAngle + skew) + tremor + drift + runawayVal;
+        localY = localAmp * Math.sin(nominalAngle + timingMod + skewMod) + drift + tremor;
       } else {
         // 1. Local dynamic amplitude (each peak/trough is slightly organic)
         const localAmplitude = amplitude * (1 + ampModDepth * Math.sin(ampModFreq * u + ampModPhase));
@@ -253,7 +273,7 @@ export class DemoBot {
         let runawayOffset = 0;
         if (runawayDrift !== 0) {
           if (runawayEnd) {
-            const sigmoid = 1 / (1 + Math.exp(-12 * (progress - runawayCenter)));
+            const sigmoid = 1 / (1 + Math.exp(-14 * (progress - runawayCenter)));
             runawayOffset = runawayDrift * sigmoid;
           } else {
             const dProg = (progress - runawayCenter) / runawaySpread;

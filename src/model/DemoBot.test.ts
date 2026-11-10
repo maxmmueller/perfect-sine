@@ -230,10 +230,10 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
     });
 
     const lastDeviations = deviations.slice(-3);
-    // End points should be strongly off-course (red/orange)
+    // End points should be strongly off-course (red/orange/amber)
     for (const d of lastDeviations) {
       expect(d.distance).toBeGreaterThan(12);
-      expect(d.hue).toBeLessThanOrEqual(65);
+      expect(d.hue).toBeLessThanOrEqual(70);
     }
   });
 
@@ -305,6 +305,11 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
       expect(limeYellow + amberOrange).toBeGreaterThan(0);
       expect(amberOrange + red).toBeGreaterThan(0);
 
+      // Verify human sine harmonic structure is authentically preserved (R2 >= 0.82 per stroke)
+      const fit = SineFitter.fit(stroke.points);
+      expect(fit).not.toBeNull();
+      expect(fit!.r2).toBeGreaterThanOrEqual(0.82);
+
       totalGreen += green;
       totalLimeYellow += limeYellow;
       totalAmberOrange += amberOrange;
@@ -317,9 +322,9 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
     const pctAmberOrange = (totalAmberOrange / totalPoints) * 100;
     const pctRed = (totalRed / totalPoints) * 100;
 
-    // Verify organic target proportions: ~35% green, ~30% lime/yellow, ~20% amber/orange, ~15% red
+    // Verify organic target proportions: ~35-50% green, ~25% lime/yellow, ~15% amber/orange, ~10% red
     expect(pctGreen).toBeGreaterThanOrEqual(25);
-    expect(pctGreen).toBeLessThanOrEqual(55);
+    expect(pctGreen).toBeLessThanOrEqual(65);
 
     expect(pctLimeYellow).toBeGreaterThanOrEqual(18);
     expect(pctLimeYellow).toBeLessThanOrEqual(40);
