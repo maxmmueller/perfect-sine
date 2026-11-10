@@ -312,20 +312,52 @@ export class DrawingController {
     const width = dims.width > 0 ? dims.width : 800;
     const height = dims.height > 0 ? dims.height : 600;
 
-    // Sometimes (around 50% of the time) draw with noticeable tilt (e.g. ~11° to ~24°)
+    // 1. Variable Amplitude a: broad variation from subtle waves (~20px) to tall, deep waves (~78px)
+    const amplitude = 20 + Math.random() * 58;
+
+    // 2. Variable Frequency / Wavelength b: from tight compact waves (~95px) to wide sweeping waves (~290px)
+    const wavelength = 95 + Math.random() * 195;
+
+    // 3. Variable Initial Phase c: randomize start angle in [0, 2*PI] so waves start at peaks, troughs, or slopes
+    const phase = Math.random() * Math.PI * 2;
+
+    // 4. Baseline Tilt: ~50% of the time, apply a noticeable slant (~11° to ~24°)
     const hasTilt = customOptions?.tiltAngle !== undefined ? true : Math.random() < 0.50;
     const tiltSign = Math.random() < 0.5 ? 1 : -1;
     const defaultTiltAngle = hasTilt
       ? tiltSign * (0.20 + Math.random() * 0.22) // ~11° to 24° distinct tilt
-      : (Math.random() - 0.5) * 0.06; // horizontal with subtle human variance (~0° to 2°)
+      : (Math.random() - 0.5) * 0.05; // horizontal with subtle human variance
     const tiltAngle = customOptions?.tiltAngle ?? defaultTiltAngle;
 
-    // Center Y adjusted so tilted waves stay comfortably within the canvas
-    const centerY = height * (hasTilt ? 0.36 + Math.random() * 0.28 : 0.28 + Math.random() * 0.44);
-    const centerX = width * (0.40 + Math.random() * 0.20);
-    const amplitude = 30 + Math.random() * 38;
-    const wavelength = 150 + Math.random() * 100;
-    const cycles = 1.3 + Math.random() * 1.4;
+    // 5. Variable Length / Cycles: vary from short (1.2 - 1.8), medium (2.0 - 3.1), to long waves spanning across the canvas (3.2 - 5.2)
+    const maxCyclesForCanvas = Math.max(1.8, Math.min(5.2, (width * 0.86) / wavelength));
+    const cycleDice = Math.random();
+    let cycles: number;
+    if (cycleDice < 0.28) {
+      cycles = 1.2 + Math.random() * 0.6; // Short concise wave (1.2 - 1.8)
+    } else if (cycleDice < 0.65) {
+      cycles = Math.min(maxCyclesForCanvas, 2.0 + Math.random() * 1.1); // Medium wave (2.0 - 3.1)
+    } else {
+      cycles = Math.min(maxCyclesForCanvas, 3.2 + Math.random() * 2.0); // Long wave spanning across canvas (3.2 - 5.2)
+    }
+
+    // 6. Variable Vertical Offset d / Center Y: position across canvas (upper, middle, lower), safe from clipping
+    const verticalSafetyMargin = amplitude + Math.abs(Math.sin(tiltAngle)) * (cycles * wavelength * 0.5) + 35;
+    const minCenterY = Math.max(90, verticalSafetyMargin);
+    const maxCenterY = Math.min(height - 60, height - verticalSafetyMargin);
+    const centerY = minCenterY < maxCenterY
+      ? minCenterY + Math.random() * (maxCenterY - minCenterY)
+      : height / 2;
+
+    const centerX = width * (0.42 + (Math.random() - 0.5) * 0.18);
+
+    // 7. Variable Drawing Speed: dynamically vary from fast, brisk hand movements (~560-900 px/s) to deliberate waves
+    const speedDice = Math.random();
+    const speedPxPerSec = speedDice < 0.45
+      ? 560 + Math.random() * 340 // Fast brisk stroke (completes in ~0.5s - 0.9s)
+      : speedDice < 0.80
+      ? 340 + Math.random() * 180 // Fluid medium hand stroke (~1.0s - 1.4s)
+      : 220 + Math.random() * 100; // Calm deliberate stroke (~1.5s - 1.8s)
 
     const generatedPoints = DemoBot.generateStroke({
       width,
@@ -335,8 +367,10 @@ export class DrawingController {
       amplitude,
       wavelength,
       cycles,
+      phase,
       tiltAngle,
       jitterLevel: 1.8,
+      speedPxPerSec,
       ...customOptions,
     });
 
