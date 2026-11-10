@@ -380,20 +380,18 @@ export class DrawingController {
       // 2. Render color-interpolated user stroke
       this.view.renderEvaluatedStroke(this.lastEvaluation.deviations);
 
-      // 3. Render score HUD banner
+      // 3. Render score HUD banner (Score large, Accuracy somewhat smaller, no extra noise)
       const score = this.lastEvaluation.score;
       const accuracy = this.lastEvaluation.accuracy;
-      const cycles = this.lastEvaluation.fittedSine.fullCycles.toFixed(1);
-      const r2 = Math.round(this.lastEvaluation.fittedSine.r2 * 100);
       if (this.isDemoActive) {
         this.view.renderBanner(
           `Demo: ${score.toLocaleString()} pts`,
-          `Bot Accuracy: ${accuracy}% | Cycles: ${cycles} | Touch anywhere to play!`
+          `Accuracy: ${accuracy}%`
         );
       } else {
         this.view.renderBanner(
           `Score: ${score.toLocaleString()} pts`,
-          `Accuracy: ${accuracy}% | Cycles: ${cycles} | R²: ${r2}% | Touch anywhere to retry`
+          `Accuracy: ${accuracy}%`
         );
       }
     } else if (this.isPointerDown && this.liveEvaluation) {
@@ -401,10 +399,9 @@ export class DrawingController {
       this.view.renderEvaluatedStroke(this.liveEvaluation.deviations);
       const liveScore = this.liveEvaluation.score;
       const liveAccuracy = this.liveEvaluation.accuracy;
-      const cycles = this.liveEvaluation.fittedSine.fullCycles.toFixed(1);
       this.view.renderBanner(
         `Score: ${liveScore.toLocaleString()} pts`,
-        `Accuracy: ${liveAccuracy}% | Live Cycles: ${cycles}`
+        `Accuracy: ${liveAccuracy}%`
       );
     } else if (this.lastValidationMessage) {
       // Incomplete wave feedback
@@ -413,14 +410,14 @@ export class DrawingController {
       }
       const isFlat = this.lastValidationMessage.toLowerCase().includes('flat') || this.lastValidationMessage.toLowerCase().includes('amplitude');
       const title = isFlat ? 'Amplitude Too Flat' : 'Incomplete Wave';
-      this.view.renderBanner(title, `${this.lastValidationMessage} Touch anywhere to retry`, true);
+      this.view.renderBanner(title, this.lastValidationMessage, true);
     } else {
       // Initial active drawing or idle state
       if (points.length > 0) {
         this.view.renderStroke(points);
       }
       if (this.isDemoActive) {
-        this.view.renderBanner('Demo Mode', 'Touch or click anywhere to play!');
+        this.view.renderBanner('Demo Mode');
       }
     }
   }
