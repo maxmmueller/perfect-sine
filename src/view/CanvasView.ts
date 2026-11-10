@@ -367,6 +367,7 @@ export class CanvasView {
   /**
    * Renders a traveling tracer bead along the actual drawn canvas wave during length measurement.
    * Arc-length parameterized for perfectly uniform speed and sub-pixel smoothness.
+   * Features a vibrant glowing comet tail, pulsating energy aura, and radiant glints.
    * Consistently renders for all score tiers.
    */
   public renderWaveTracer(
@@ -395,58 +396,169 @@ export class CanvasView {
       return;
     }
 
-    const targetDist = Math.max(0, Math.min(1.0, progress)) * totalLength;
-    let accumulated = 0;
-    let pt = deviations[0].point;
-    let currentIdx = 0;
-
-    for (let i = 0; i < segLengths.length; i++) {
-      const segLen = segLengths[i];
-      if (accumulated + segLen >= targetDist || i === segLengths.length - 1) {
-        currentIdx = i;
-        if (segLen > 1e-4) {
-          const t = Math.max(0, Math.min(1, (targetDist - accumulated) / segLen));
-          const p1 = deviations[i].point;
-          const p2 = deviations[i + 1].point;
-          pt = {
-            x: p1.x + (p2.x - p1.x) * t,
-            y: p1.y + (p2.y - p1.y) * t,
-          };
-        } else {
-          pt = deviations[i].point;
+    // Helper to compute sub-pixel point along the wave at any arc-length distance
+    const getPointAtDist = (targetD: number): Point => {
+      const clampedD = Math.max(0, Math.min(totalLength, targetD));
+      let acc = 0;
+      for (let i = 0; i < segLengths.length; i++) {
+        const segLen = segLengths[i];
+        if (acc + segLen >= clampedD || i === segLengths.length - 1) {
+          if (segLen > 1e-4) {
+            const t = Math.max(0, Math.min(1, (clampedD - acc) / segLen));
+            const p1 = deviations[i].point;
+            const p2 = deviations[i + 1].point;
+            return {
+              x: p1.x + (p2.x - p1.x) * t,
+              y: p1.y + (p2.y - p1.y) * t,
+            };
+          }
+          return deviations[i].point;
         }
-        break;
+        acc += segLen;
       }
-      accumulated += segLen;
+      return deviations[deviations.length - 1].point;
+    };
+
+    const currentDist = Math.max(0, Math.min(1.0, progress)) * totalLength;
+    const headPt = getPointAtDist(currentDist);
+
+    // Dynamic style configuration per celebration tier
+    const config = {
+      legendary: {
+        ringColor: '#facc15',
+        trailColor: 'rgba(250, 204, 21, ',
+        auraColor: 'rgba(250, 204, 21, 0.45)',
+        radius: 6.5,
+        auraRadius: 22,
+        hasFlare: true,
+      },
+      high: {
+        ringColor: '#22c55e',
+        trailColor: 'rgba(74, 222, 128, ',
+        auraColor: 'rgba(34, 197, 94, 0.40)',
+        radius: 5.5,
+        auraRadius: 18,
+        hasFlare: true,
+      },
+      medium: {
+        ringColor: '#38bdf8',
+        trailColor: 'rgba(56, 189, 248, ',
+        auraColor: 'rgba(56, 189, 248, 0.35)',
+        radius: 4.5,
+        auraRadius: 15,
+        hasFlare: false,
+      },
+      low: {
+        ringColor: '#f59e0b',
+        trailColor: 'rgba(245, 158, 11, ',
+        auraColor: 'rgba(245, 158, 11, 0.30)',
+        radius: 4.0,
+        auraRadius: 13,
+        hasFlare: false,
+      },
+    }[tier];
+
+    // 1. Dynamic glowing comet tail trailing behind the head along the actual wave curve
+    const trailOffsets = [8, 18, 30, 44, 60];
+    const trailPoints: Point[] = [];
+    for (const offset of trailOffsets) {
+      if (currentDist - offset >= 0) {
+        trailPoints.push(getPointAtDist(currentDist - offset));
+      }
     }
 
-    const radius = tier === 'legendary' ? 6 : tier === 'high' ? 5 : tier === 'medium' ? 4 : 3.5;
-    const ringColor = tier === 'legendary' ? '#facc15' : tier === 'high' ? '#22c55e' : '#38bdf8';
+    if (trailPoints.length >= 1) {
+      // Connecting glowing comet tail ribbon
+      this.ctx.beginPath();
+      this.ctx.moveTo(headPt.x, headPt.y);
+      for (const tp of trailPoints) {
+        this.ctx.lineTo(tp.x, tp.y);
+      }
+      this.ctx.strokeStyle = `${config.trailColor}0.40)`;
+      this.ctx.lineWidth = Math.max(2, config.radius * 1.3);
+      this.ctx.lineCap = 'round';
+      this.ctx.lineJoin = 'round';
+      this.ctx.stroke();
 
-    // Outer ring
+      // Trailing spark embers along the tail
+      for (let k = 0; k < trailPoints.length; k++) {
+        const tp = trailPoints[k];
+        const trailAlpha = Math.max(0.12, 0.75 - k * 0.14);
+        const trailR = Math.max(1.2, config.radius * (0.75 - k * 0.12));
+
+        this.ctx.beginPath();
+        this.ctx.arc(tp.x, tp.y, trailR, 0, Math.PI * 2);
+        this.ctx.fillStyle = `${config.trailColor}${trailAlpha})`;
+        this.ctx.fill();
+      }
+    }
+
+    // 2. Pulsing energy aura (radial glow bloom)
+    const pulse = 1.0 + 0.18 * Math.sin(progress * Math.PI * 14);
+    const dynamicAura = config.auraRadius * pulse;
+
+    if (typeof this.ctx.createRadialGradient === 'function') {
+      const radialGrad = this.ctx.createRadialGradient(
+        headPt.x,
+        headPt.y,
+        config.radius * 0.3,
+        headPt.x,
+        headPt.y,
+        dynamicAura
+      );
+      radialGrad.addColorStop(0, config.auraColor);
+      radialGrad.addColorStop(0.6, `${config.trailColor}0.15)`);
+      radialGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      this.ctx.fillStyle = radialGrad;
+    } else {
+      this.ctx.fillStyle = config.auraColor;
+    }
+
     this.ctx.beginPath();
-    this.ctx.arc(pt.x, pt.y, radius + 2.5, 0, Math.PI * 2);
-    this.ctx.strokeStyle = ringColor;
-    this.ctx.lineWidth = 1.5;
+    this.ctx.arc(headPt.x, headPt.y, dynamicAura, 0, Math.PI * 2);
+    this.ctx.fill();
+
+    // 3. Crisp high-contrast energy ring
+    this.ctx.beginPath();
+    this.ctx.arc(headPt.x, headPt.y, config.radius + 2.5, 0, Math.PI * 2);
+    this.ctx.strokeStyle = config.ringColor;
+    this.ctx.lineWidth = 2.0;
     this.ctx.stroke();
 
-    // Central core
+    // 4. Brilliant white-hot core
     this.ctx.beginPath();
-    this.ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+    this.ctx.arc(headPt.x, headPt.y, config.radius, 0, Math.PI * 2);
     this.ctx.fillStyle = '#ffffff';
     this.ctx.fill();
 
-    // Trailing sparks for legendary tier
-    if (tier === 'legendary' && currentIdx > 4) {
-      for (let trail = 1; trail <= 3; trail++) {
-        const trailPt = deviations[currentIdx - trail * 2]?.point;
-        if (trailPt) {
-          this.ctx.beginPath();
-          this.ctx.arc(trailPt.x, trailPt.y, 2.5 - trail * 0.6, 0, Math.PI * 2);
-          this.ctx.fillStyle = `rgba(250, 204, 21, ${0.8 - trail * 0.25})`;
-          this.ctx.fill();
-        }
-      }
+    // 5. Radiant 4-point star glint for high and legendary tiers
+    if (config.hasFlare) {
+      const flareLen = config.radius * 2.2;
+      const angle = progress * Math.PI * 8; // smooth rotation as it travels
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+
+      this.ctx.beginPath();
+      this.ctx.moveTo(headPt.x - flareLen * cosA, headPt.y - flareLen * sinA);
+      this.ctx.lineTo(headPt.x + flareLen * cosA, headPt.y + flareLen * sinA);
+      this.ctx.moveTo(headPt.x + flareLen * sinA, headPt.y - flareLen * cosA);
+      this.ctx.lineTo(headPt.x - flareLen * sinA, headPt.y + flareLen * cosA);
+      this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      this.ctx.lineWidth = 1.5;
+      this.ctx.stroke();
+    }
+
+    // 6. Endpoint impact flash when reaching the end of the wave
+    if (progress >= 0.95) {
+      const impactP = (progress - 0.95) / 0.05;
+      const impactRadius = config.radius + impactP * 16;
+      const impactAlpha = Math.max(0, 1 - impactP);
+
+      this.ctx.beginPath();
+      this.ctx.arc(headPt.x, headPt.y, impactRadius, 0, Math.PI * 2);
+      this.ctx.strokeStyle = `${config.trailColor}${impactAlpha})`;
+      this.ctx.lineWidth = 2.0;
+      this.ctx.stroke();
     }
 
     this.ctx.restore();
