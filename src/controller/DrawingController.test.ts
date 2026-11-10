@@ -165,6 +165,44 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     );
   });
 
+  it('should reject a 5-cycle triangle wave (user screenshot case) with "Not a Sine Wave"', () => {
+    const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+    controller.handlePointerDown(createPointerEvent('pointerdown', 50, 200));
+
+    const period = 80;
+    const cycles = 5;
+    const A = 60;
+    const totalPoints = 120;
+
+    for (let i = 1; i < totalPoints; i++) {
+      const x = (i / (totalPoints - 1)) * (period * cycles);
+      const phase = ((x % period) + period) % period;
+      let yOffset: number;
+      if (phase < period / 4) {
+        yOffset = (phase / (period / 4)) * A;
+      } else if (phase < (3 * period) / 4) {
+        yOffset = A - ((phase - period / 4) / (period / 4)) * 2 * A;
+      } else {
+        yOffset = -A + ((phase - (3 * period) / 4) / (period / 4)) * A;
+      }
+      controller.handlePointerMove(createPointerEvent('pointermove', 50 + x, 200 + yOffset));
+    }
+
+    controller.handlePointerUp(createPointerEvent('pointerup', 50 + period * cycles, 200));
+
+    expect(stateMachine.getState()).toBe('LOCKED');
+    expect(controller.getLastEvaluation()).toBeNull();
+    expect(mockView.renderBanner).toHaveBeenCalledWith(
+      'Not a Sine Wave',
+      undefined,
+      true
+    );
+    expect(mockView.renderStroke).toHaveBeenCalledWith(
+      expect.any(Array),
+      '#ef4444'
+    );
+  });
+
   it('should evaluate a valid full-cycle sine wave and notify callback', () => {
     const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
       onEvaluationComplete,
@@ -518,6 +556,38 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       const redPoints = lastCallDeviations.filter((d) => d.hue <= 25);
       expect(redPoints.length).toBeGreaterThan(3);
       expect(redPoints[0].color).toMatch(/^hsl\(([0-9]|1[0-9]|2[0-5]),/);
+
+      controller.stopDemo();
+      vi.unstubAllGlobals();
+    });
+
+    it('should prune demo history so at most 2 historical waves remain', () => {
+      let rAFCallback: FrameRequestCallback | null = null;
+      vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => {
+        rAFCallback = cb;
+        return 123;
+      }));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+
+      // Wave 1
+      controller.startDemo({ cycles: 1.5, amplitude: 30 }, false);
+      if (rAFCallback) (rAFCallback as (time: number) => void)(performance.now() + 4000);
+
+      // Wave 2
+      controller.startDemo({ cycles: 1.5, amplitude: 30 }, true);
+      if (rAFCallback) (rAFCallback as (time: number) => void)(performance.now() + 8000);
+
+      // Wave 3
+      controller.startDemo({ cycles: 1.5, amplitude: 30 }, true);
+      if (rAFCallback) (rAFCallback as (time: number) => void)(performance.now() + 12000);
+
+      // Wave 4
+      controller.startDemo({ cycles: 1.5, amplitude: 30 }, true);
+
+      // History must be at most 2 waves
+      expect(controller.getDemoHistory().length).toBeLessThanOrEqual(2);
 
       controller.stopDemo();
       vi.unstubAllGlobals();
