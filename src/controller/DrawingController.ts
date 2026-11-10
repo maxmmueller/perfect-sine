@@ -687,14 +687,22 @@ export class DrawingController {
         this.view.renderEvaluatedStroke(this.currentDemoDeviations, 3.5, 1.0);
       }
     } else if (this.lastValidationMessage) {
-      // Incomplete wave feedback: clean, uniform, without additional info
+      // Incomplete or invalid wave feedback: clean, uniform, without additional info
       if (points.length > 0) {
         this.view.renderStroke(points, '#ef4444');
       }
       const isFlat =
         this.lastValidationMessage.toLowerCase().includes('flat') ||
         this.lastValidationMessage.toLowerCase().includes('amplitude');
-      const title = isFlat ? 'Sine Wave Too Flat' : 'Incomplete Sine Wave';
+      const isNotSine =
+        this.lastValidationMessage.toLowerCase().includes('not a sine') ||
+        this.lastValidationMessage.toLowerCase().includes('sharp') ||
+        this.lastValidationMessage.toLowerCase().includes('zigzag');
+      const title = isNotSine
+        ? 'Not a Sine Wave'
+        : isFlat
+          ? 'Sine Wave Too Flat'
+          : 'Incomplete Sine Wave';
       this.view.renderBanner(title, undefined, true);
     } else {
       // Initial active drawing, demo drawing, or idle state (no banner in demo mode)

@@ -160,17 +160,176 @@ export class PeriodValidator {
 
     // Curve is valid if it covers at least minCycles and exhibits harmonic alternation
     const hasAlternation = crossings.length >= 2 || (peaks.length >= 1 && troughs.length >= 1);
-    const isValid = fullCycles >= minCycles && hasAlternation;
+    const isValidPeriod = fullCycles >= minCycles && hasAlternation;
+
+    if (!isValidPeriod) {
+      return {
+        isValid: false,
+        fullCycles,
+        totalSpan,
+        zeroCrossingsCount: crossings.length,
+        amplitude,
+        message: `Curve spans only ${fullCycles.toFixed(2)} cycles. At least ~0.9 full period is required.`,
+      };
+    }
+
+    // Check if the curve is a triangle or zigzag waveform with sharp apex cusps
+    if (
+      omega > 0 &&
+      amplitude >= minAmplitude &&
+      PeriodValidator.isZigzagWave(points, amplitude, omega, meanY)
+    ) {
+      return {
+        isValid: false,
+        fullCycles,
+        totalSpan,
+        zeroCrossingsCount: crossings.length,
+        amplitude,
+        message: 'Not a sine: Wave has sharp peaks (zigzag detected). Sine waves require rounded crests.',
+      };
+    }
 
     return {
-      isValid,
+      isValid: true,
       fullCycles,
       totalSpan,
       zeroCrossingsCount: crossings.length,
       amplitude,
-      message: isValid
-        ? `Valid period: ${fullCycles.toFixed(2)} cycles.`
-        : `Curve spans only ${fullCycles.toFixed(2)} cycles. At least ~0.9 full period is required.`,
+      message: `Valid period: ${fullCycles.toFixed(2)} cycles.`,
     };
+  }
+
+  /**
+   * Evaluates whether the curve is a triangle or zigzag waveform with sharp apex cusps
+   * instead of smooth, rounded sinusoidal crests.
+   *
+   * @param points Baseline-aligned points.
+   * @param amplitude Peak amplitude of the wave.
+   * @param frequency Angular frequency omega (rad/px).
+   * @param meanY Baseline mean Y offset.
+   */
+  public static isZigzagWave(
+    points: readonly Point[],
+    amplitude: number,
+    frequency: number,
+    meanY: number
+  ): boolean {
+    if (!points || points.length < 12 || amplitude < 15 || frequency <= 0) {
+      return false;
+    }
+
+    const period = (2 * Math.PI) / frequency;
+    if (period <= 0 || !isFinite(period)) return false;
+
+    // 1. Moving average 5-point smoothing to suppress high-frequency hand jitter
+    const sm: Point[] = [];
+    for (let i = 0; i < points.length; i++) {
+      let sumY = 0;
+      let count = 0;
+      const start = Math.max(0, i - 2);
+      const end = Math.min(points.length - 1, i + 2);
+      for (let j = start; j <= end; j++) {
+        sumY += points[j].y;
+        count++;
+      }
+      sm.push({ x: points[i].x, y: sumY / count });
+    }
+
+    // 2. Extrema detection & Apex Sharpness Evaluation
+    // deltaX: sampling distance around the apex (~8% of period, min 5px)
+    const deltaX = Math.max(5, period * 0.08);
+    let totalExtrema = 0;
+    let sharpExtrema = 0;
+    const dropRatios: number[] = [];
+
+    for (let i = 2; i < sm.length - 2; i++) {
+      const yNorm = sm[i].y - meanY;
+      const isPeak =
+        sm[i].y > sm[i - 1].y &&
+        sm[i].y > sm[i - 2].y &&
+        sm[i].y > sm[i + 1].y &&
+        sm[i].y > sm[i + 2].y &&
+        yNorm > 0.25 * amplitude;
+
+      const isTrough =
+        sm[i].y < sm[i - 1].y &&
+        sm[i].y < sm[i - 2].y &&
+        sm[i].y < sm[i + 1].y &&
+        sm[i].y < sm[i + 2].y &&
+        yNorm < -0.25 * amplitude;
+
+      if (!isPeak && !isTrough) continue;
+
+      totalExtrema++;
+      const xApex = sm[i].x;
+      const yApex = sm[i].y;
+
+      let pLeft = sm[0];
+      let pRight = sm[sm.length - 1];
+
+      for (let j = i - 1; j >= 0; j--) {
+        if (Math.abs(xApex - sm[j].x) >= deltaX) {
+          pLeft = sm[j];
+          break;
+        }
+      }
+      for (let j = i + 1; j < sm.length; j++) {
+        if (Math.abs(sm[j].x - xApex) >= deltaX) {
+          pRight = sm[j];
+          break;
+        }
+      }
+
+      const dLeft = Math.abs(xApex - pLeft.x);
+      const dRight = Math.abs(pRight.x - xApex);
+
+      if (dLeft < 2 || dRight < 2) continue;
+
+      // Expected vertical drop for a pure sine calculated at the exact sampled horizontal distances
+      const expLeft = amplitude * (1 - Math.cos(frequency * dLeft));
+      const expRight = amplitude * (1 - Math.cos(frequency * dRight));
+      const expectedDrop = (expLeft + expRight) / 2;
+
+      const actualDrop = isPeak
+        ? (yApex - pLeft.y + (yApex - pRight.y)) / 2
+        : (pLeft.y - yApex + (pRight.y - yApex)) / 2;
+
+      if (expectedDrop > 1e-4) {
+        const ratio = actualDrop / expectedDrop;
+        dropRatios.push(ratio);
+        // Pure sine drop ratio is ~1.0; pure triangle drop ratio is ~2.1.
+        // If ratio > 1.45, the apex behaves as a sharp triangle corner.
+        if (ratio > 1.45) {
+          sharpExtrema++;
+        }
+      }
+    }
+
+    // 3. Horizontal slope dwell metric:
+    // Sine waves spend ~20-30% of their length with tangent close to horizontal (|slope| < 0.35 * A * omega).
+    // Triangle waves spend < 3% near horizontal because slopes are purely diagonal (+m and -m).
+    const maxSlope = amplitude * frequency;
+    let nearZeroSlopeCount = 0;
+    for (let i = 1; i < sm.length; i++) {
+      const dx = sm[i].x - sm[i - 1].x;
+      const dy = sm[i].y - sm[i - 1].y;
+      if (Math.abs(dx) > 1e-4) {
+        const slope = dy / dx;
+        if (Math.abs(slope) < 0.35 * maxSlope) {
+          nearZeroSlopeCount++;
+        }
+      }
+    }
+    const horizontalDwellRatio = nearZeroSlopeCount / Math.max(1, sm.length - 1);
+
+    const avgDropRatio =
+      dropRatios.length > 0
+        ? dropRatios.reduce((a, b) => a + b, 0) / dropRatios.length
+        : 1.0;
+
+    return (
+      (totalExtrema >= 1 && sharpExtrema / totalExtrema >= 0.5 && avgDropRatio > 1.45) ||
+      (totalExtrema >= 2 && horizontalDwellRatio < 0.05 && avgDropRatio > 1.35)
+    );
   }
 }

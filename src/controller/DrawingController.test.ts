@@ -122,6 +122,49 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     );
   });
 
+  it('should reject a sharp zigzag wave and display "Not a Sine Wave" warning banner', () => {
+    const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
+      onEvaluationComplete,
+      onReset,
+    });
+
+    controller.handlePointerDown(createPointerEvent('pointerdown', 0, 200));
+
+    // Simulate 3-cycle zigzag wave with sharp cusps
+    const period = 120;
+    const cycles = 3;
+    const A = 40;
+    const totalPoints = 120;
+
+    for (let i = 1; i < totalPoints; i++) {
+      const x = (i / (totalPoints - 1)) * (period * cycles);
+      const phase = ((x % period) + period) % period;
+      let yOffset: number;
+      if (phase < period / 4) {
+        yOffset = (phase / (period / 4)) * A;
+      } else if (phase < (3 * period) / 4) {
+        yOffset = A - ((phase - period / 4) / (period / 4)) * 2 * A;
+      } else {
+        yOffset = -A + ((phase - (3 * period) / 4) / (period / 4)) * A;
+      }
+      controller.handlePointerMove(createPointerEvent('pointermove', x, 200 + yOffset));
+    }
+
+    controller.handlePointerUp(createPointerEvent('pointerup', period * cycles, 200));
+
+    expect(stateMachine.getState()).toBe('LOCKED');
+    expect(controller.getLastEvaluation()).toBeNull();
+    expect(mockView.renderBanner).toHaveBeenCalledWith(
+      'Not a Sine Wave',
+      undefined,
+      true
+    );
+    expect(mockView.renderStroke).toHaveBeenCalledWith(
+      expect.any(Array),
+      '#ef4444'
+    );
+  });
+
   it('should evaluate a valid full-cycle sine wave and notify callback', () => {
     const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
       onEvaluationComplete,
