@@ -45,7 +45,7 @@ export class ScoreStrategyManager {
   constructor(defaultStrategyId: string = 'rmse_l2', storageAdapter?: IStorageAdapter) {
     this.storage = storageAdapter ?? this.createDefaultStorage();
 
-    // Register the 5 canonical algorithms
+    // Register the 5 canonical experimental algorithms
     this.register(new RmseScoreStrategy());
     this.register(new AreaDeviationScoreStrategy());
     this.register(new HarmonicSymmetryScoreStrategy());
