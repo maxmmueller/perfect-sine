@@ -366,6 +366,8 @@ export class CanvasView {
 
   /**
    * Renders a traveling tracer bead along the actual drawn canvas wave during length measurement.
+   * Arc-length parameterized for perfectly uniform speed and sub-pixel smoothness.
+   * Consistently renders for all score tiers.
    */
   public renderWaveTracer(
     deviations: readonly PointDeviation[],
@@ -373,20 +375,57 @@ export class CanvasView {
     tier: ScoreAnimationTier
   ): void {
     if (deviations.length < 2 || progress <= 0 || progress > 1.0) return;
-    if (tier === 'low') return;
 
     this.ctx.save();
     this.ctx.shadowBlur = 0;
 
-    const idx = Math.min(deviations.length - 1, Math.floor(progress * (deviations.length - 1)));
-    const pt = deviations[idx].point;
+    // Arc-length parameterized interpolation for smooth, constant-speed movement
+    let totalLength = 0;
+    const segLengths: number[] = new Array(deviations.length - 1);
+    for (let i = 0; i < deviations.length - 1; i++) {
+      const p1 = deviations[i].point;
+      const p2 = deviations[i + 1].point;
+      const d = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      segLengths[i] = d;
+      totalLength += d;
+    }
 
-    const radius = tier === 'legendary' ? 6 : tier === 'high' ? 5 : 4;
+    if (totalLength <= 0) {
+      this.ctx.restore();
+      return;
+    }
+
+    const targetDist = Math.max(0, Math.min(1.0, progress)) * totalLength;
+    let accumulated = 0;
+    let pt = deviations[0].point;
+    let currentIdx = 0;
+
+    for (let i = 0; i < segLengths.length; i++) {
+      const segLen = segLengths[i];
+      if (accumulated + segLen >= targetDist || i === segLengths.length - 1) {
+        currentIdx = i;
+        if (segLen > 1e-4) {
+          const t = Math.max(0, Math.min(1, (targetDist - accumulated) / segLen));
+          const p1 = deviations[i].point;
+          const p2 = deviations[i + 1].point;
+          pt = {
+            x: p1.x + (p2.x - p1.x) * t,
+            y: p1.y + (p2.y - p1.y) * t,
+          };
+        } else {
+          pt = deviations[i].point;
+        }
+        break;
+      }
+      accumulated += segLen;
+    }
+
+    const radius = tier === 'legendary' ? 6 : tier === 'high' ? 5 : tier === 'medium' ? 4 : 3.5;
     const ringColor = tier === 'legendary' ? '#facc15' : tier === 'high' ? '#22c55e' : '#38bdf8';
 
     // Outer ring
     this.ctx.beginPath();
-    this.ctx.arc(pt.x, pt.y, radius + 3, 0, Math.PI * 2);
+    this.ctx.arc(pt.x, pt.y, radius + 2.5, 0, Math.PI * 2);
     this.ctx.strokeStyle = ringColor;
     this.ctx.lineWidth = 1.5;
     this.ctx.stroke();
@@ -398,9 +437,9 @@ export class CanvasView {
     this.ctx.fill();
 
     // Trailing sparks for legendary tier
-    if (tier === 'legendary' && idx > 4) {
+    if (tier === 'legendary' && currentIdx > 4) {
       for (let trail = 1; trail <= 3; trail++) {
-        const trailPt = deviations[idx - trail * 2]?.point;
+        const trailPt = deviations[currentIdx - trail * 2]?.point;
         if (trailPt) {
           this.ctx.beginPath();
           this.ctx.arc(trailPt.x, trailPt.y, 2.5 - trail * 0.6, 0, Math.PI * 2);

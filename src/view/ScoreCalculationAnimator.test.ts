@@ -114,11 +114,51 @@ describe('ScoreCalculationAnimator', () => {
 
     // Legendary tier (>=1000 pts): 32 particles, prominent ripple and star particles
     const legAnim = new ScoreCalculationAnimator();
-    legAnim.start(createMockEvaluation(1200, 98, 2.8), 100, 100);
+    legAnim.start(createMockEvaluation(1200, 98, 2.0), 100, 100);
     const legState = legAnim.update(performance.now() + 1400);
     expect(legState.particles.length).toBe(32);
     expect(legState.rippleRadius).toBeGreaterThan(highState.rippleRadius);
     expect(legState.particles.some((p) => p.shape === 'star')).toBe(true);
+  });
+
+  it('should scale tracer duration proportionally with curve path length at constant speed', () => {
+    const animatorShort = new ScoreCalculationAnimator();
+    const shortEval = createMockEvaluation(400, 80, 1.0);
+    animatorShort.start(shortEval, 100, 100);
+
+    const animatorLong = new ScoreCalculationAnimator();
+    const longEval = createMockEvaluation(800, 80, 3.5);
+    animatorLong.start(longEval, 100, 100);
+
+    // Constant speed means long curves take strictly more time to trace than short curves
+    expect(animatorShort.getTracerDuration()).toBeLessThan(animatorLong.getTracerDuration());
+    expect(animatorLong.getTracerDuration()).toBeGreaterThan(animatorShort.getTracerDuration() * 2.5);
+
+    // Test with actual point deviations
+    const deviationsShort = [
+      { point: { x: 0, y: 0 }, distance: 0, normalizedError: 0, hue: 120, color: 'green' },
+      { point: { x: 350, y: 0 }, distance: 0, normalizedError: 0, hue: 120, color: 'green' },
+    ];
+    const deviationsLong = [
+      { point: { x: 0, y: 0 }, distance: 0, normalizedError: 0, hue: 120, color: 'green' },
+      { point: { x: 950, y: 0 }, distance: 0, normalizedError: 0, hue: 120, color: 'green' },
+    ];
+
+    const shortWithDevs: StrokeEvaluation = {
+      ...shortEval,
+      deviations: deviationsShort,
+    };
+    const longWithDevs: StrokeEvaluation = {
+      ...longEval,
+      deviations: deviationsLong,
+    };
+
+    animatorShort.start(shortWithDevs, 100, 100);
+    animatorLong.start(longWithDevs, 100, 100);
+
+    expect(animatorShort.getTracerDuration()).toBeCloseTo((350 / 950) * 1000, 0);
+    expect(animatorLong.getTracerDuration()).toBeCloseTo((950 / 950) * 1000, 0);
+    expect(animatorShort.getTracerDuration()).toBeLessThan(animatorLong.getTracerDuration());
   });
 
   it('should reset properly when interrupted', () => {

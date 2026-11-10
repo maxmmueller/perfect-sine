@@ -45,7 +45,11 @@ export class ScoreCalculationAnimator {
   private fullCycles = 0;
   private targetScore = 0;
   private startTime = 0;
-  private readonly duration = 1600; // 1.6s total animation
+  private tracerDuration = 640;
+  private multiplyingDuration = 480;
+  private celebratingDuration = 320;
+  private totalDuration = 1440;
+  private pathLength = 0;
   private tier: ScoreAnimationTier = 'low';
   private particles: CalculationParticle[] = [];
   private particlesSpawned = false;
@@ -62,6 +66,29 @@ export class ScoreCalculationAnimator {
     this.particlesSpawned = false;
     this.originX = originX;
     this.originY = originY;
+
+    // Calculate actual drawn stroke path length in pixels
+    let strokeLength = 0;
+    const devs = evaluation.deviations;
+    if (devs && devs.length >= 2) {
+      for (let i = 0; i < devs.length - 1; i++) {
+        const p1 = devs[i].point;
+        const p2 = devs[i + 1].point;
+        strokeLength += Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      }
+    } else if (evaluation.fittedSine) {
+      // Fallback estimate if deviations array is empty: approximate sine arc length
+      strokeLength = evaluation.fittedSine.fullCycles * evaluation.fittedSine.period * 1.30;
+    }
+    this.pathLength = strokeLength;
+
+    // Uniform tracer speed: constant ~950 px/s across all wave lengths
+    // Shorter curves take less time, longer curves take proportionally more time
+    const TRACER_SPEED_PX_PER_SEC = 950;
+    this.tracerDuration = Math.max(250, Math.min(2200, (strokeLength / TRACER_SPEED_PX_PER_SEC) * 1000));
+    this.multiplyingDuration = 520;
+    this.celebratingDuration = 380;
+    this.totalDuration = this.tracerDuration + this.multiplyingDuration + this.celebratingDuration;
 
     // Determine celebration tier based on score magnitude
     if (this.targetScore < 300) {
@@ -89,6 +116,18 @@ export class ScoreCalculationAnimator {
     return this.tier;
   }
 
+  public getTracerDuration(): number {
+    return this.tracerDuration;
+  }
+
+  public getTotalDuration(): number {
+    return this.totalDuration;
+  }
+
+  public getPathLength(): number {
+    return this.pathLength;
+  }
+
   public update(now: number = typeof performance !== 'undefined' ? performance.now() : Date.now()): ScoreAnimationState {
     if (!this.active) {
       return {
@@ -110,7 +149,7 @@ export class ScoreCalculationAnimator {
     }
 
     const elapsed = Math.max(0, now - this.startTime);
-    const progress = Math.min(1.0, elapsed / this.duration);
+    const progress = Math.min(1.0, elapsed / this.totalDuration);
 
     let phase: ScoreAnimationPhase = 'measuring';
     let currentCycles = 0;
@@ -120,31 +159,36 @@ export class ScoreCalculationAnimator {
     let rippleRadius = 0;
     let rippleAlpha = 0;
 
-    // Phase 1: Measuring Length (0.0 to 0.4)
-    if (progress < 0.4) {
+    const t1 = this.tracerDuration;
+    const t2 = t1 + this.multiplyingDuration;
+    const t3 = this.totalDuration;
+
+    // Phase 1: Measuring Length at strictly uniform speed along the curve
+    if (elapsed < t1) {
       phase = 'measuring';
-      const p1 = progress / 0.4;
+      const p1 = Math.min(1.0, elapsed / t1);
       waveTracerProgress = p1;
       currentCycles = this.fullCycles * p1;
       currentScore = Math.round(this.targetScore * 0.15 * p1);
     }
-    // Phase 2: Multiplying Accuracy x Length (0.4 to 0.8)
-    else if (progress < 0.8) {
+    // Phase 2: Multiplying Accuracy x Length
+    else if (elapsed < t2) {
       phase = 'multiplying';
-      const p2 = (progress - 0.4) / 0.4;
+      const p2 = Math.min(1.0, (elapsed - t1) / this.multiplyingDuration);
       waveTracerProgress = 1.0;
       currentCycles = this.fullCycles;
       // Exponential ease-out counting up
       currentScore = Math.round(this.targetScore * (0.15 + 0.85 * (1 - Math.pow(1 - p2, 2))));
     }
-    // Phase 3: Impact & Celebration (0.8 to 1.0+)
+    // Phase 3: Impact & Celebration
     else {
-      phase = progress < 1.0 ? 'celebrating' : 'settled';
+      const isSettled = elapsed >= t3;
+      phase = isSettled ? 'settled' : 'celebrating';
       currentCycles = this.fullCycles;
       currentScore = this.targetScore;
       waveTracerProgress = 1.0;
 
-      const p3 = Math.min(1.0, (progress - 0.8) / 0.2);
+      const p3 = Math.min(1.0, (elapsed - t2) / this.celebratingDuration);
 
       // Spawn celebratory particles once upon reaching impact
       if (!this.particlesSpawned) {
@@ -152,7 +196,7 @@ export class ScoreCalculationAnimator {
         this.particlesSpawned = true;
       }
 
-      if (progress < 1.0) {
+      if (!isSettled) {
         // Dynamic scale bounce based on tier
         const bounceIntensity =
           this.tier === 'legendary' ? 0.38 : this.tier === 'high' ? 0.24 : this.tier === 'medium' ? 0.12 : 0.04;
@@ -174,8 +218,8 @@ export class ScoreCalculationAnimator {
     this.updateParticles();
 
     // End active animation once progress reached 1.0 and all particles have faded away
-    // Failsafe: elapsed >= duration + 800ms forces termination even if frame rate stuttered
-    if ((progress >= 1.0 && this.particles.length === 0) || elapsed >= this.duration + 800) {
+    // Failsafe: elapsed >= totalDuration + 800ms forces termination even if frame rate stuttered
+    if ((progress >= 1.0 && this.particles.length === 0) || elapsed >= this.totalDuration + 800) {
       this.particles = [];
       this.active = false;
     }
