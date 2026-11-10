@@ -592,5 +592,36 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       controller.stopDemo();
       vi.unstubAllGlobals();
     });
+
+    it('should draw mixed human error curves by default in demo mode', () => {
+      let rAFCallback: FrameRequestCallback | null = null;
+      vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => {
+        rAFCallback = cb;
+        return 123;
+      }));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+
+      // Default startDemo without custom options should use 'mixed'
+      controller.startDemo();
+
+      if (rAFCallback) {
+        (rAFCallback as (time: number) => void)(performance.now() + 4000);
+      }
+
+      const callArgs = vi.mocked(mockView.renderEvaluatedStroke).mock.calls;
+      const lastCallDeviations = callArgs[callArgs.length - 1][0];
+      const hues = lastCallDeviations.map((d) => d.hue);
+
+      // Verify that the stroke contains green regions (accurate) as well as warmer hues (imperfections)
+      const greenCount = hues.filter((h) => h >= 90).length;
+      const imperfectCount = hues.filter((h) => h < 90).length;
+      expect(greenCount).toBeGreaterThan(5);
+      expect(imperfectCount).toBeGreaterThan(5);
+
+      controller.stopDemo();
+      vi.unstubAllGlobals();
+    });
   });
 });

@@ -278,4 +278,56 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
     const minRunawayHue = Math.min(...runaway.deviations.map((d) => d.hue));
     expect(minRunawayHue).toBeLessThan(30);
   });
+
+  it('should combine all 4 error types (pristine, wobbly, uneven, runaway) in a single mixed demo stroke', () => {
+    let totalGreen = 0;
+    let totalLimeYellow = 0;
+    let totalAmberOrange = 0;
+    let totalRed = 0;
+    let totalPoints = 0;
+
+    for (let trial = 0; trial < 15; trial++) {
+      const stroke = DemoBot.generateStrokeWithDeviations({
+        profile: 'mixed',
+        cycles: 2.5,
+        amplitude: 45,
+        wavelength: 180,
+      });
+
+      const hues = stroke.deviations.map((d) => d.hue);
+      const green = hues.filter((h) => h >= 90).length;
+      const limeYellow = hues.filter((h) => h >= 60 && h < 90).length;
+      const amberOrange = hues.filter((h) => h >= 25 && h < 60).length;
+      const red = hues.filter((h) => h < 25).length;
+
+      // In each individual stroke, multiple error classes must be present
+      expect(green).toBeGreaterThan(0);
+      expect(limeYellow + amberOrange).toBeGreaterThan(0);
+      expect(amberOrange + red).toBeGreaterThan(0);
+
+      totalGreen += green;
+      totalLimeYellow += limeYellow;
+      totalAmberOrange += amberOrange;
+      totalRed += red;
+      totalPoints += hues.length;
+    }
+
+    const pctGreen = (totalGreen / totalPoints) * 100;
+    const pctLimeYellow = (totalLimeYellow / totalPoints) * 100;
+    const pctAmberOrange = (totalAmberOrange / totalPoints) * 100;
+    const pctRed = (totalRed / totalPoints) * 100;
+
+    // Verify organic target proportions: ~35% green, ~30% lime/yellow, ~20% amber/orange, ~15% red
+    expect(pctGreen).toBeGreaterThanOrEqual(25);
+    expect(pctGreen).toBeLessThanOrEqual(55);
+
+    expect(pctLimeYellow).toBeGreaterThanOrEqual(18);
+    expect(pctLimeYellow).toBeLessThanOrEqual(40);
+
+    expect(pctAmberOrange).toBeGreaterThanOrEqual(10);
+    expect(pctAmberOrange).toBeLessThanOrEqual(30);
+
+    expect(pctRed).toBeGreaterThanOrEqual(7);
+    expect(pctRed).toBeLessThanOrEqual(25);
+  });
 });
