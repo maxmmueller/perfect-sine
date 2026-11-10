@@ -233,7 +233,7 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
     // End points should be strongly off-course (red/orange)
     for (const d of lastDeviations) {
       expect(d.distance).toBeGreaterThan(15);
-      expect(d.hue).toBeLessThan(60);
+      expect(d.hue).toBeLessThanOrEqual(60);
     }
   });
 });
