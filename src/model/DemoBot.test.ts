@@ -102,4 +102,62 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
 
     expect(points.length).toBeGreaterThan(10);
   });
+
+  it('should support initial phase offset (c in a*sin(b*x+c)+d)', () => {
+    // Phase 0: starts at zero-crossing (y ~ centerY)
+    const pointsPhase0 = DemoBot.generateStroke({
+      centerY: 200,
+      amplitude: 50,
+      wavelength: 200,
+      cycles: 1.0,
+      phase: 0,
+      jitterLevel: 0,
+    });
+    expect(pointsPhase0[0].y).toBeCloseTo(200, 0);
+
+    // Phase PI/2: starts at peak (y ~ centerY + amplitude)
+    const pointsPhasePeak = DemoBot.generateStroke({
+      centerY: 200,
+      amplitude: 50,
+      wavelength: 200,
+      cycles: 1.0,
+      phase: Math.PI / 2,
+      jitterLevel: 0,
+    });
+    expect(pointsPhasePeak[0].y).toBeCloseTo(250, 0);
+  });
+
+  it('should support varied drawing speeds (speedPxPerSec)', () => {
+    const pointsFast = DemoBot.generateStroke({
+      wavelength: 200,
+      cycles: 2.0,
+      speedPxPerSec: 600,
+      jitterLevel: 0,
+    });
+    const pointsSlow = DemoBot.generateStroke({
+      wavelength: 200,
+      cycles: 2.0,
+      speedPxPerSec: 200,
+      jitterLevel: 0,
+    });
+
+    const durationFast = pointsFast[pointsFast.length - 1].time ?? 0;
+    const durationSlow = pointsSlow[pointsSlow.length - 1].time ?? 1;
+
+    // Fast speed should finish in roughly 1/3 of the time
+    expect(durationFast).toBeLessThan(durationSlow * 0.45);
+  });
+
+  it('should support long waves with extensive cycles', () => {
+    const pointsLong = DemoBot.generateStroke({
+      amplitude: 35,
+      wavelength: 120,
+      cycles: 4.5,
+      jitterLevel: 1.0,
+    });
+
+    const fit = SineFitter.fit(pointsLong);
+    expect(fit).not.toBeNull();
+    expect(fit!.fullCycles).toBeCloseTo(4.5, 1);
+  });
 });

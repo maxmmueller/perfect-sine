@@ -15,10 +15,14 @@ export interface DemoWaveOptions {
   readonly wavelength?: number;
   /** Number of full cycles to draw (default 1.8) */
   readonly cycles?: number;
+  /** Initial phase angle in radians (default 0) */
+  readonly phase?: number;
   /** Baseline tilt in radians (default 0) */
   readonly tiltAngle?: number;
-  /** Human tremor/jitter magnitude in pixels (default 2.5, 0 = pristine) */
+  /** Human tremor/imperfection magnitude in pixels (default 2.0, 0 = pristine) */
   readonly jitterLevel?: number;
+  /** Drawing speed in pixels per second (default 250) */
+  readonly speedPxPerSec?: number;
   /** Step size in pixels along the wave baseline (default 3) */
   readonly stepPx?: number;
   /** Optional pseudo-random number generator for deterministic testing */
@@ -27,7 +31,8 @@ export interface DemoWaveOptions {
 
 /**
  * DemoBot generates procedurally synthesized freehand sine wave strokes
- * with realistic human micro-tremors, neuromuscular jitter, and baseline drift.
+ * with realistic human drawing dynamics: smooth strokes, peak overshoot/skew,
+ * amplitude modulation, arm-pivot drift, and variable drawing speeds.
  * Zero DOM dependency for headless verification.
  */
 export class DemoBot {
@@ -40,8 +45,10 @@ export class DemoBot {
     const amplitude = Math.max(options.amplitude ?? 45, 10);
     const wavelength = Math.max(options.wavelength ?? 220, 50);
     const cycles = Math.max(options.cycles ?? 1.8, 0.5);
+    const initialPhase = options.phase ?? 0;
     const tiltAngle = options.tiltAngle ?? 0;
-    const jitterLevel = Math.max(options.jitterLevel ?? 2.5, 0);
+    const jitterLevel = Math.max(options.jitterLevel ?? 2.0, 0);
+    const speedPxPerSec = Math.max(options.speedPxPerSec ?? 250, 40);
     const stepPx = Math.max(options.stepPx ?? 3, 1);
     const rng = options.rng ?? Math.random;
 
@@ -56,46 +63,54 @@ export class DemoBot {
     const points: Point[] = [];
     const omega = (2 * Math.PI) / wavelength;
 
-    // Harmonic tremor frequencies to simulate neuromuscular oscillations (3-8 Hz band)
-    const tremorFreq1 = omega * 4.3;
-    const tremorFreq2 = omega * 9.7;
-    const phaseOffset1 = rng() * Math.PI * 2;
-    const phaseOffset2 = rng() * Math.PI * 2;
+    // Organic hand-drawing dynamics (smooth, realistic, non-jagged):
+    // 1. Natural peak/trough amplitude modulation across cycles
+    const ampModFreq = omega * 0.45;
+    const ampModPhase = rng() * Math.PI * 2;
+    const ampModDepth = jitterLevel > 0 ? Math.min(0.12, (jitterLevel / 2.5) * 0.07) : 0;
+
+    // 2. Smooth neuromuscular oscillation (smooth continuous wave, no discrete white noise)
+    const smoothTremorFreq = omega * 4.2;
+    const smoothTremorPhase = rng() * Math.PI * 2;
+    const smoothTremorAmp = jitterLevel > 0 ? (jitterLevel / 2.5) * 1.5 : 0;
+
+    // 3. Fast-stroke asymmetric momentum / hand drag (slight 2nd harmonic turning skew)
+    const skewFactor = jitterLevel > 0 ? (jitterLevel / 2.5) * 0.04 : 0;
+
+    // 4. Smooth arm/wrist pivot baseline drift
+    const driftPhase = rng() * Math.PI * 2;
+    const driftAmp = jitterLevel > 0 ? (jitterLevel / 2.5) * 2.0 : 0;
 
     let currentTime = 0;
-    const speedPxPerSec = 250; // realistic hand speed
 
     for (let xPrime = startXPrime; xPrime <= -startXPrime; xPrime += stepPx) {
-      const progress = (xPrime - startXPrime) / totalLength;
+      const u = xPrime - startXPrime;
+      const progress = u / totalLength;
+      const nominalAngle = omega * u + initialPhase;
 
-      // 1. Nominal mathematical sine wave
-      const idealY = amplitude * Math.sin(omega * (xPrime - startXPrime));
+      // 1. Local dynamic amplitude (each peak/trough is slightly organic)
+      const localAmplitude = amplitude * (1 + ampModDepth * Math.sin(ampModFreq * u + ampModPhase));
 
-      // 2. Neuromuscular tremor and hand jitter
-      let jitterY = 0;
-      let jitterX = 0;
-      if (jitterLevel > 0) {
-        const harmonicJitter =
-          0.6 * Math.sin(tremorFreq1 * xPrime + phaseOffset1) +
-          0.4 * Math.sin(tremorFreq2 * xPrime + phaseOffset2);
-        const noise = (rng() - 0.5) * 1.5;
-        jitterY = (harmonicJitter + noise) * jitterLevel;
+      // 2. Stroke curve with fast-hand skew and smooth natural tremor
+      const skew = skewFactor * Math.sin(2 * nominalAngle);
+      const tremor = smoothTremorAmp * Math.sin(smoothTremorFreq * u + smoothTremorPhase);
+      const idealY = localAmplitude * Math.sin(nominalAngle + skew) + tremor;
 
-        // Slight horizontal motor hesitation
-        jitterX = (rng() - 0.5) * jitterLevel * 0.5;
-      }
+      // 3. Gentle baseline drift from wrist/arm pivot
+      const baselineDrift = driftAmp * Math.sin(progress * Math.PI + driftPhase);
 
-      // 3. Natural human fatigue / baseline drift (subtle quadratic or linear droop)
-      const driftY = jitterLevel > 0 ? Math.sin(progress * Math.PI) * (rng() - 0.5) * 3 : 0;
-
-      const localX = xPrime + jitterX;
-      const localY = idealY + jitterY + driftY;
+      const localX = xPrime;
+      const localY = idealY + baselineDrift;
 
       // 4. Rotate and translate into screen space
       const screenX = centerX + localX * cosTilt - localY * sinTilt;
       const screenY = centerY + localX * sinTilt + localY * cosTilt;
 
-      currentTime += (stepPx / speedPxPerSec) * 1000;
+      // Dynamic velocity: faster through zero-crossings (momentum), slightly slower around crest turns
+      const velFactor = 1.0 + 0.20 * Math.pow(Math.cos(nominalAngle), 2) - 0.10 * Math.pow(Math.sin(nominalAngle), 2);
+      const dt = (stepPx / (speedPxPerSec * velFactor)) * 1000;
+      currentTime += dt;
+
       points.push({
         x: Math.round(screenX * 10) / 10,
         y: Math.round(screenY * 10) / 10,
