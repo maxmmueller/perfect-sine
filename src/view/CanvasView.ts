@@ -255,19 +255,15 @@ export class CanvasView {
     this.ctx.save();
     this.ctx.shadowBlur = 0;
     const cx = this.width / 2;
-    const isMobile = this.width < 480;
+    const isMobile = this.width < 520;
+    const bannerFontSize = isMobile ? 32 : 48;
 
     if (isError) {
+      // Uniform headline font size and positioning, zero extra info
       this.ctx.textAlign = 'center';
-      this.ctx.font = '700 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       this.ctx.fillStyle = '#ef4444';
-      this.ctx.fillText(title, cx, isMobile ? 52 : 62);
-
-      if (subtitle) {
-        this.ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        this.ctx.fillStyle = '#94a3b8';
-        this.ctx.fillText(subtitle, cx, isMobile ? 78 : 90);
-      }
+      this.ctx.fillText(title, cx, isMobile ? 54 : 66);
       this.ctx.restore();
       return;
     }
@@ -288,8 +284,7 @@ export class CanvasView {
         }
       }
 
-      const scoreFontSize = isMobile ? 38 : 50;
-      this.ctx.font = `800 ${scoreFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       this.ctx.fillStyle = scoreColor;
       const displayScore = title.startsWith('Demo') ? `Demo: ${scoreText}` : `Score: ${scoreText}`;
       this.ctx.fillText(displayScore, cx, isMobile ? 54 : 66);
@@ -307,14 +302,15 @@ export class CanvasView {
       }
     } else {
       this.ctx.textAlign = 'center';
-      this.ctx.font = '700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       this.ctx.fillStyle = '#38bdf8';
-      this.ctx.fillText(title, cx, isMobile ? 52 : 62);
+      this.ctx.fillText(title, cx, isMobile ? 54 : 66);
 
       if (subtitle) {
-        this.ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        const subFontSize = isMobile ? 18 : 22;
+        this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
         this.ctx.fillStyle = '#94a3b8';
-        this.ctx.fillText(subtitle, cx, isMobile ? 78 : 90);
+        this.ctx.fillText(subtitle, cx, isMobile ? 82 : 98);
       }
     }
 

@@ -404,13 +404,15 @@ export class DrawingController {
         `Accuracy: ${liveAccuracy}%`
       );
     } else if (this.lastValidationMessage) {
-      // Incomplete wave feedback
+      // Incomplete wave feedback: clean, uniform, without additional info
       if (points.length > 0) {
-        this.view.renderStroke(points, '#ff3366');
+        this.view.renderStroke(points, '#ef4444');
       }
-      const isFlat = this.lastValidationMessage.toLowerCase().includes('flat') || this.lastValidationMessage.toLowerCase().includes('amplitude');
-      const title = isFlat ? 'Amplitude Too Flat' : 'Incomplete Wave';
-      this.view.renderBanner(title, this.lastValidationMessage, true);
+      const isFlat =
+        this.lastValidationMessage.toLowerCase().includes('flat') ||
+        this.lastValidationMessage.toLowerCase().includes('amplitude');
+      const title = isFlat ? 'Sine Wave Too Flat' : 'Incomplete Sine Wave';
+      this.view.renderBanner(title, undefined, true);
     } else {
       // Initial active drawing or idle state
       if (points.length > 0) {
