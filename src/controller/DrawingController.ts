@@ -10,8 +10,14 @@ import { IScoreStrategy } from '../model/scoring/IScoreStrategy';
 import { UnifiedEnsembleScoreStrategy } from '../model/scoring/UnifiedEnsembleScoreStrategy';
 import { ScoreStrategyManager, ScorerEvaluationItem } from '../model/scoring/ScoreStrategyManager';
 import { StrokeEvaluation, Point, PointDeviation } from '../model/types';
-import { DeviationCalculator } from '../model/DeviationCalculator';
 import { ScoreCalculationAnimator } from '../view/ScoreCalculationAnimator';
+
+export interface DemoHistoricalWave {
+  readonly deviations: PointDeviation[];
+  fromAlpha: number;
+  toAlpha: number;
+  alpha: number;
+}
 
 export class DrawingController {
   private readonly canvas: HTMLCanvasElement;
@@ -37,6 +43,7 @@ export class DrawingController {
   private demoPoints: Point[] = [];
   private demoDeviations: PointDeviation[] = [];
   private currentDemoDeviations: PointDeviation[] = [];
+  private demoHistory: DemoHistoricalWave[] = [];
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -297,15 +304,47 @@ export class DrawingController {
     this.lastValidationMessage = null;
     this.coordinateFrame = null;
     this.currentDemoDeviations = [];
+    this.demoHistory = [];
     this.isPointerDown = false;
     this.canvas.style.cursor = 'default';
     this.onReset?.();
     this.render();
   }
 
-  public startDemo(customOptions?: DemoWaveOptions): void {
-    this.stopDemo();
-    this.reset();
+  public startDemo(customOptions?: DemoWaveOptions, preserveHistory = false): void {
+    if (!preserveHistory) {
+      this.stopDemo();
+      this.reset();
+      this.demoHistory = [];
+    } else {
+      if (this.demoAnimationId !== null && typeof cancelAnimationFrame !== 'undefined') {
+        cancelAnimationFrame(this.demoAnimationId);
+        this.demoAnimationId = null;
+      }
+      if (this.demoTimeoutId !== null && typeof clearTimeout !== 'undefined') {
+        clearTimeout(this.demoTimeoutId);
+        this.demoTimeoutId = null;
+      }
+
+      // Transition the completed demo wave into history with smooth decay
+      if (this.currentDemoDeviations.length >= 2) {
+        for (const item of this.demoHistory) {
+          item.fromAlpha = item.toAlpha;
+          item.toAlpha = item.fromAlpha * 0.40;
+          item.alpha = item.fromAlpha;
+        }
+        this.demoHistory = this.demoHistory.filter((item) => item.toAlpha >= 0.04);
+        this.demoHistory.push({
+          deviations: [...this.currentDemoDeviations],
+          fromAlpha: 0.85,
+          toAlpha: 0.42,
+          alpha: 0.85,
+        });
+      }
+      this.strokeBuffer.clear();
+      this.currentDemoDeviations = [];
+    }
+
     this.isDemoActive = true;
 
     const dims = this.view.getDimensions();
@@ -359,7 +398,7 @@ export class DrawingController {
       ? 340 + Math.random() * 180 // Fluid medium hand stroke (~1.0s - 1.4s)
       : 220 + Math.random() * 100; // Calm deliberate stroke (~1.5s - 1.8s)
 
-    const generatedPoints = DemoBot.generateStroke({
+    const result = DemoBot.generateStrokeWithDeviations({
       width,
       height,
       centerX,
@@ -374,21 +413,9 @@ export class DrawingController {
       ...customOptions,
     });
 
-    if (generatedPoints.length === 0) return;
-    this.demoPoints = generatedPoints;
-
-    // Precalculate realistic gradient deviations for the entire synthesized stroke
-    const fit = SineFitter.fit(this.demoPoints);
-    if (fit) {
-      this.demoDeviations = [...DeviationCalculator.evaluate(this.demoPoints, fit, 30).deviations];
-    } else {
-      // Defensive fallback: map points to realistic tremor color deviations
-      this.demoDeviations = this.demoPoints.map((pt, i) => {
-        const dist = Math.abs(Math.sin(i * 0.35) * 2.2);
-        const { hue, normalizedError, color } = DeviationCalculator.mapDistanceToColor(dist, 30);
-        return { point: pt, distance: dist, normalizedError, hue, color };
-      });
-    }
+    if (result.points.length === 0) return;
+    this.demoPoints = result.points;
+    this.demoDeviations = result.deviations;
     this.currentDemoDeviations = [];
 
     let pointIndex = 0;
@@ -409,6 +436,11 @@ export class DrawingController {
 
       this.currentDemoDeviations = this.demoDeviations.slice(0, pointIndex);
 
+      // Smoothly interpolate the alpha of historical waves as the new wave is drawn
+      for (const item of this.demoHistory) {
+        item.alpha = item.fromAlpha + (item.toAlpha - item.fromAlpha) * progress;
+      }
+
       this.render();
 
       if (progress < 1.0) {
@@ -417,16 +449,13 @@ export class DrawingController {
         }
       } else {
         // Complete demo stroke: do NOT score and do NOT display any results.
-        // Pause briefly, then clear and draw another sine wave at a different position.
+        // Pause briefly, then draw another sine wave with historical waves smoothly fading out.
         if (typeof setTimeout !== 'undefined') {
           this.demoTimeoutId = setTimeout(() => {
             if (this.isDemoActive) {
-              this.strokeBuffer.clear();
-              this.currentDemoDeviations = [];
-              this.render();
-              this.startDemo();
+              this.startDemo(undefined, true);
             }
-          }, 1200) as unknown as number;
+          }, 600) as unknown as number;
         }
       }
     };
@@ -450,6 +479,11 @@ export class DrawingController {
     this.demoPoints = [];
     this.demoDeviations = [];
     this.currentDemoDeviations = [];
+    this.demoHistory = [];
+  }
+
+  public getDemoHistory(): readonly DemoHistoricalWave[] {
+    return this.demoHistory;
   }
 
   public isDemoPlaying(): boolean {
@@ -508,9 +542,16 @@ export class DrawingController {
       this.view.renderEvaluatedStroke(this.liveEvaluation.deviations);
       const liveAccuracy = this.liveEvaluation.accuracy;
       this.view.renderBanner(`${liveAccuracy}%`);
-    } else if (this.isDemoActive && this.currentDemoDeviations.length >= 2) {
-      // Demo drawing in progress: render with dynamic color gradient, NO scoring/results banner
-      this.view.renderEvaluatedStroke(this.currentDemoDeviations);
+    } else if (this.isDemoActive) {
+      // Demo mode: render historical fading waves and the active wave, NO scoring/results banner
+      for (const hist of this.demoHistory) {
+        if (hist.alpha > 0.01 && hist.deviations.length >= 2) {
+          this.view.renderEvaluatedStroke(hist.deviations, 3.5, hist.alpha);
+        }
+      }
+      if (this.currentDemoDeviations.length >= 2) {
+        this.view.renderEvaluatedStroke(this.currentDemoDeviations, 3.5, 1.0);
+      }
     } else if (this.lastValidationMessage) {
       // Incomplete wave feedback: clean, uniform, without additional info
       if (points.length > 0) {

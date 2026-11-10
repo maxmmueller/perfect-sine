@@ -1,4 +1,5 @@
-import { Point } from './types';
+import { Point, PointDeviation, FittedSine } from './types';
+import { DeviationCalculator } from './DeviationCalculator';
 
 export interface DemoWaveOptions {
   /** Canvas/viewport width (default 800) */
@@ -29,6 +30,11 @@ export interface DemoWaveOptions {
   readonly rng?: () => number;
 }
 
+export interface DemoWaveResult {
+  readonly points: Point[];
+  readonly deviations: PointDeviation[];
+}
+
 /**
  * DemoBot generates procedurally synthesized freehand sine wave strokes
  * with realistic human drawing dynamics: smooth strokes, peak overshoot/skew,
@@ -40,6 +46,15 @@ export class DemoBot {
    * Generates a sequence of points simulating a human drawing a sine wave.
    */
   public static generateStroke(options: DemoWaveOptions = {}): Point[] {
+    return this.generateStrokeWithDeviations(options).points;
+  }
+
+  /**
+   * Generates points along with exact analytical deviations from the intended
+   * nominal mathematical sine wave. This ensures the color gradient reflects
+   * the true wave geometry without any PCA or empirical fitting skew.
+   */
+  public static generateStrokeWithDeviations(options: DemoWaveOptions = {}): DemoWaveResult {
     const width = options.width ?? 800;
     const height = options.height ?? 600;
     const amplitude = Math.max(options.amplitude ?? 45, 10);
@@ -61,7 +76,19 @@ export class DemoBot {
     const sinTilt = Math.sin(tiltAngle);
 
     const points: Point[] = [];
+    const deviations: PointDeviation[] = [];
     const omega = (2 * Math.PI) / wavelength;
+
+    const nominalFit: FittedSine = {
+      amplitude,
+      frequency: omega,
+      phase: initialPhase,
+      offset: 0,
+      tilt: { angle: 0, centroid: { x: 0, y: 0 } },
+      period: wavelength,
+      fullCycles: cycles,
+      r2: 1.0,
+    };
 
     // Organic hand-drawing dynamics (smooth, realistic, non-jagged):
     // 1. Natural peak/trough amplitude modulation across cycles
@@ -111,13 +138,25 @@ export class DemoBot {
       const dt = (stepPx / (speedPxPerSec * velFactor)) * 1000;
       currentTime += dt;
 
-      points.push({
+      const pt: Point = {
         x: Math.round(screenX * 10) / 10,
         y: Math.round(screenY * 10) / 10,
         time: Math.round(currentTime),
+      };
+      points.push(pt);
+
+      // Compute exact orthogonal distance from local coordinates to the true nominal sine wave
+      const dist = DeviationCalculator.calculateOrthogonalDistance(u, localY, nominalFit);
+      const { hue, normalizedError, color } = DeviationCalculator.mapDistanceToColor(dist, 30);
+      deviations.push({
+        point: pt,
+        distance: Math.round(dist * 100) / 100,
+        normalizedError: Math.round(normalizedError * 1000) / 1000,
+        hue,
+        color,
       });
     }
 
-    return points;
+    return { points, deviations };
   }
 }

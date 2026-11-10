@@ -24,10 +24,10 @@ export class CanvasView {
   }
 
   public handleResize(): { width: number; height: number } {
-    this.dpr = window.devicePixelRatio || 1;
+    this.dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
     const rect = this.canvas.getBoundingClientRect();
-    this.width = rect.width || window.innerWidth;
-    this.height = rect.height || window.innerHeight;
+    this.width = rect.width || (typeof window !== 'undefined' ? window.innerWidth : 800);
+    this.height = rect.height || (typeof window !== 'undefined' ? window.innerHeight : 600);
 
     this.canvas.width = Math.floor(this.width * this.dpr);
     this.canvas.height = Math.floor(this.height * this.dpr);
@@ -103,19 +103,31 @@ export class CanvasView {
   /**
    * Renders the evaluated stroke where segments dynamically transition color
    * based on orthogonal distance deviation (120° Green -> 60° Yellow -> 0° Red).
+   * Supports an optional alpha parameter for fading historical strokes.
    * Clean ink transitions without blurry glow.
    */
   public renderEvaluatedStroke(
     deviations: readonly PointDeviation[],
-    lineWidth: number = 3.5
+    lineWidth: number = 3.5,
+    alpha: number = 1.0
   ): void {
     if (deviations.length < 2) return;
+    const safeAlpha = Math.max(0, Math.min(1, alpha));
+    if (safeAlpha <= 0.005) return;
 
     this.ctx.save();
+    this.ctx.globalAlpha = safeAlpha;
     this.ctx.lineWidth = lineWidth;
-    this.ctx.lineCap = 'round';
+    this.ctx.lineCap = 'butt';
     this.ctx.lineJoin = 'round';
     this.ctx.shadowBlur = 0;
+
+    // Draw round endcap at start
+    const first = deviations[0];
+    this.ctx.fillStyle = first.color;
+    this.ctx.beginPath();
+    this.ctx.arc(first.point.x, first.point.y, lineWidth / 2, 0, Math.PI * 2);
+    this.ctx.fill();
 
     for (let i = 0; i < deviations.length - 1; i++) {
       const d1 = deviations[i];
@@ -132,6 +144,13 @@ export class CanvasView {
       this.ctx.lineTo(d2.point.x, d2.point.y);
       this.ctx.stroke();
     }
+
+    // Draw round endcap at end
+    const last = deviations[deviations.length - 1];
+    this.ctx.fillStyle = last.color;
+    this.ctx.beginPath();
+    this.ctx.arc(last.point.x, last.point.y, lineWidth / 2, 0, Math.PI * 2);
+    this.ctx.fill();
 
     this.ctx.restore();
   }

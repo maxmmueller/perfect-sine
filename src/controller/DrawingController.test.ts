@@ -279,7 +279,7 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       vi.unstubAllGlobals();
     });
 
-    it('should support tilted sine waves in demo mode', () => {
+    it('should support tilted sine waves in demo mode with predominantly green hues', () => {
       let rAFCallback: FrameRequestCallback | null = null;
       vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => {
         rAFCallback = cb;
@@ -298,7 +298,77 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       }
       expect(strokeBuffer.getLength()).toBeGreaterThan(5);
 
+      const callArgs = vi.mocked(mockView.renderEvaluatedStroke).mock.calls;
+      const lastCallDeviations = callArgs[callArgs.length - 1][0];
+      const hues = lastCallDeviations.map((d) => d.hue);
+      const avgHue = hues.reduce((a, b) => a + b, 0) / hues.length;
+      expect(avgHue).toBeGreaterThan(95); // High green accuracy
+      expect(hues.filter((h) => h < 50).length).toBe(0); // Zero red/orange points
+
       controller.stopDemo();
+      vi.unstubAllGlobals();
+    });
+
+    it('should accumulate previous demo waves in history and smoothly fade their opacity', () => {
+      let rAFCallback: FrameRequestCallback | null = null;
+      let timeoutCallback: (() => void) | null = null;
+
+      vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => {
+        rAFCallback = cb;
+        return 123;
+      }));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      vi.stubGlobal('setTimeout', vi.fn((cb: () => void) => {
+        timeoutCallback = cb;
+        return 456 as unknown as ReturnType<typeof setTimeout>;
+      }));
+      vi.stubGlobal('clearTimeout', vi.fn());
+
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      controller.startDemo({ speedPxPerSec: 500 });
+      expect(controller.getDemoHistory().length).toBe(0);
+
+      // Finish wave 1 by advancing animation frame to duration
+      if (rAFCallback) {
+        (rAFCallback as (time: number) => void)(performance.now() + 5000);
+      }
+
+      // Timeout should be set to transition to wave 2
+      expect(timeoutCallback).not.toBeNull();
+      if (timeoutCallback) {
+        (timeoutCallback as () => void)();
+      }
+
+      // Wave 1 should now be preserved in demoHistory with initial alpha ~0.85
+      const historyAfterWave1 = controller.getDemoHistory();
+      expect(historyAfterWave1.length).toBe(1);
+      expect(historyAfterWave1[0].alpha).toBeCloseTo(0.85, 1);
+
+      // Animate wave 2 to half progress: wave 1 alpha should interpolate down
+      if (rAFCallback) {
+        (rAFCallback as (time: number) => void)(performance.now() + 250);
+      }
+      expect(controller.getDemoHistory()[0].alpha).toBeLessThan(0.85);
+      expect(controller.getDemoHistory()[0].alpha).toBeGreaterThan(0.40);
+
+      // Finish wave 2 and trigger wave 3
+      if (rAFCallback) {
+        (rAFCallback as (time: number) => void)(performance.now() + 5000);
+      }
+      if (timeoutCallback) {
+        (timeoutCallback as () => void)();
+      }
+
+      // Should now have 2 waves in history, older wave faded more than newer wave
+      const historyAfterWave2 = controller.getDemoHistory();
+      expect(historyAfterWave2.length).toBe(2);
+      expect(historyAfterWave2[0].alpha).toBeLessThan(historyAfterWave2[1].alpha);
+
+      // Interruption should immediately clear history
+      controller.handlePointerDown(createPointerEvent('pointerdown', 200, 200));
+      expect(controller.getDemoHistory().length).toBe(0);
+      expect(controller.isDemoPlaying()).toBe(false);
+
       vi.unstubAllGlobals();
     });
   });
