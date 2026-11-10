@@ -150,4 +150,57 @@ describe('SineFitter (Mathematical Regression & Parameter Fitting)', () => {
     expect(fit.fullCycles).toBeLessThanOrEqual(5.5);
     expect(fit.r2).toBeGreaterThanOrEqual(0.85);
   });
+
+  it('should trim terminal liftoff hook accurately and return unchanged if too short', () => {
+    expect(SineFitter.trimTerminalHook([]).length).toBe(0);
+    expect(SineFitter.trimTerminalHook([{ x: 0, y: 0 }]).length).toBe(1);
+
+    const normalPoints: Point[] = [];
+    for (let i = 0; i < 20; i++) {
+      normalPoints.push({ x: i * 10, y: 100 + i * 2 });
+    }
+    expect(SineFitter.trimTerminalHook(normalPoints).length).toBe(20);
+
+    // Points with vertical liftoff hook at the end
+    const hookedPoints: Point[] = [...normalPoints];
+    for (let i = 1; i <= 5; i++) {
+      hookedPoints.push({ x: 190 + i * 0.1, y: 140 + i * 6 });
+    }
+    const trimmed = SineFitter.trimTerminalHook(hookedPoints);
+    expect(trimmed.length).toBeLessThan(hookedPoints.length);
+  });
+
+  it('should handle solveHarmonicOLS edge cases with degenerate input', () => {
+    expect(SineFitter.solveHarmonicOLS([], 0.05)).toBeNull();
+    expect(SineFitter.solveHarmonicOLS([{ x: 0, y: 0 }], 0.05)).toBeNull();
+
+    // Collinear points along same x resulting in zero determinant
+    const verticalPoints: Point[] = [
+      { x: 0, y: 0 },
+      { x: 0, y: 10 },
+      { x: 0, y: 20 },
+      { x: 0, y: 30 },
+    ];
+    expect(SineFitter.solveHarmonicOLS(verticalPoints, 0.05)).toBeNull();
+  });
+
+  it('should return null for narrow spanX <= 10 or degenerate monotonic filtering', () => {
+    // 10 identical points that collapse under monotonic filtering
+    const identicalPoints: Point[] = Array.from({ length: 10 }, () => ({ x: 50, y: 50 }));
+    expect(SineFitter.fit(identicalPoints)).toBeNull();
+
+    // Span <= 10
+    const shortSpanPoints: Point[] = [
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+      { x: 2, y: 2 },
+      { x: 3, y: 1 },
+      { x: 4, y: 0 },
+      { x: 5, y: -1 },
+      { x: 6, y: -2 },
+      { x: 7, y: -1 },
+      { x: 8, y: 0 },
+    ];
+    expect(SineFitter.fit(shortSpanPoints)).toBeNull();
+  });
 });

@@ -190,6 +190,12 @@ export class DrawingController {
       return;
     }
 
+    if (fit.amplitude < 20) {
+      this.lastValidationMessage = 'Wave amplitude is too small (< 20px). Draw a larger wave with clear peaks and troughs.';
+      this.lastEvaluation = null;
+      return;
+    }
+
     // Validate period coverage (at least 2*PI radians)
     const aligned = TiltDetector.transformPoints(points, fit.tilt);
     const periodCheck = PeriodValidator.validate(aligned, fit.frequency);

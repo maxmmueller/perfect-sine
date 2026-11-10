@@ -67,14 +67,29 @@ export class TiltDetector {
       pcaTheta = pcaTheta > 0 ? pcaTheta - Math.PI : pcaTheta + Math.PI;
     }
 
-    // 4. For directional strokes (chordDist > 20px), the chord vector between stroke endpoints
-    // accurately defines the baseline axis around which the sine wave oscillates.
-    // For compact or closed loops, fall back to the PCA principal axis.
+    // 4. Robust Baseline Orientation:
+    // Pure endpoint chords (first -> last) can exhibit a 15-20° slant when a wave starts at a trough
+    // and ends at a peak or liftoff flick.
+    // For intentional diagonal drawings (e.g. 30°, 45°), chord vector defines the baseline.
+    // For near-horizontal strokes (within ~22° of horizontal), snap to pure horizontal (0 or ±PI)
+    // to match player intent and prevent diagonal warping.
     const chordTheta = Math.atan2(strokeDy, strokeDx);
-    const theta = chordDist > 20 ? chordTheta : pcaTheta;
+    const rawAngle = chordDist >= 15 ? chordTheta : pcaTheta;
+
+    const snapThreshold = (22 * Math.PI) / 180;
+    const verticalSnapThreshold = (12 * Math.PI) / 180;
+    let finalAngle = rawAngle;
+
+    if (Math.abs(rawAngle) < snapThreshold) {
+      finalAngle = 0; // Pure left-to-right horizontal
+    } else if (Math.abs(Math.abs(rawAngle) - Math.PI) < snapThreshold) {
+      finalAngle = Math.sign(rawAngle) * Math.PI; // Pure right-to-left horizontal
+    } else if (Math.abs(Math.abs(rawAngle) - Math.PI / 2) < verticalSnapThreshold) {
+      finalAngle = Math.sign(rawAngle) * (Math.PI / 2); // Vertical
+    }
 
     return {
-      angle: theta,
+      angle: finalAngle,
       centroid: { x: meanX, y: meanY },
     };
   }
