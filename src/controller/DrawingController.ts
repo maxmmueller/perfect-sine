@@ -9,7 +9,8 @@ import { DemoBot, DemoWaveOptions } from '../model/DemoBot';
 import { IScoreStrategy } from '../model/scoring/IScoreStrategy';
 import { UnifiedEnsembleScoreStrategy } from '../model/scoring/UnifiedEnsembleScoreStrategy';
 import { ScoreStrategyManager, ScorerEvaluationItem } from '../model/scoring/ScoreStrategyManager';
-import { StrokeEvaluation } from '../model/types';
+import { StrokeEvaluation, Point, PointDeviation } from '../model/types';
+import { DeviationCalculator } from '../model/DeviationCalculator';
 import { ScoreCalculationAnimator } from '../view/ScoreCalculationAnimator';
 
 export class DrawingController {
@@ -33,6 +34,9 @@ export class DrawingController {
   private demoTimeoutId: number | null = null;
   private scoreAnimId: number | null = null;
   private isDemoActive = false;
+  private demoPoints: Point[] = [];
+  private demoDeviations: PointDeviation[] = [];
+  private currentDemoDeviations: PointDeviation[] = [];
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -292,6 +296,7 @@ export class DrawingController {
     this.liveEvaluation = null;
     this.lastValidationMessage = null;
     this.coordinateFrame = null;
+    this.currentDemoDeviations = [];
     this.isPointerDown = false;
     this.canvas.style.cursor = 'default';
     this.onReset?.();
@@ -307,15 +312,22 @@ export class DrawingController {
     const width = dims.width > 0 ? dims.width : 800;
     const height = dims.height > 0 ? dims.height : 600;
 
-    // Vary position, amplitude, wavelength, and tilt to doodle different sine waves across the page
-    const centerY = height * (0.28 + Math.random() * 0.44);
-    const centerX = width * (0.40 + Math.random() * 0.20);
-    const amplitude = 30 + Math.random() * 40;
-    const wavelength = 150 + Math.random() * 110;
-    const cycles = 1.3 + Math.random() * 1.5;
-    const tiltAngle = (Math.random() - 0.5) * 0.24;
+    // Sometimes (around 50% of the time) draw with noticeable tilt (e.g. ~11° to ~24°)
+    const hasTilt = customOptions?.tiltAngle !== undefined ? true : Math.random() < 0.50;
+    const tiltSign = Math.random() < 0.5 ? 1 : -1;
+    const defaultTiltAngle = hasTilt
+      ? tiltSign * (0.20 + Math.random() * 0.22) // ~11° to 24° distinct tilt
+      : (Math.random() - 0.5) * 0.06; // horizontal with subtle human variance (~0° to 2°)
+    const tiltAngle = customOptions?.tiltAngle ?? defaultTiltAngle;
 
-    const demoPoints = DemoBot.generateStroke({
+    // Center Y adjusted so tilted waves stay comfortably within the canvas
+    const centerY = height * (hasTilt ? 0.36 + Math.random() * 0.28 : 0.28 + Math.random() * 0.44);
+    const centerX = width * (0.40 + Math.random() * 0.20);
+    const amplitude = 30 + Math.random() * 38;
+    const wavelength = 150 + Math.random() * 100;
+    const cycles = 1.3 + Math.random() * 1.4;
+
+    const generatedPoints = DemoBot.generateStroke({
       width,
       height,
       centerX,
@@ -328,23 +340,40 @@ export class DrawingController {
       ...customOptions,
     });
 
-    if (demoPoints.length === 0) return;
+    if (generatedPoints.length === 0) return;
+    this.demoPoints = generatedPoints;
+
+    // Precalculate realistic gradient deviations for the entire synthesized stroke
+    const fit = SineFitter.fit(this.demoPoints);
+    if (fit) {
+      this.demoDeviations = [...DeviationCalculator.evaluate(this.demoPoints, fit, 30).deviations];
+    } else {
+      // Defensive fallback: map points to realistic tremor color deviations
+      this.demoDeviations = this.demoPoints.map((pt, i) => {
+        const dist = Math.abs(Math.sin(i * 0.35) * 2.2);
+        const { hue, normalizedError, color } = DeviationCalculator.mapDistanceToColor(dist, 30);
+        return { point: pt, distance: dist, normalizedError, hue, color };
+      });
+    }
+    this.currentDemoDeviations = [];
 
     let pointIndex = 0;
     const startTime = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    const duration = demoPoints[demoPoints.length - 1].time || 1500;
+    const duration = this.demoPoints[this.demoPoints.length - 1].time || 1500;
 
     const animateStroke = (timestamp: number) => {
       if (!this.isDemoActive) return;
 
       const elapsed = timestamp - startTime;
       const progress = Math.min(elapsed / duration, 1.0);
-      const targetCount = Math.floor(progress * demoPoints.length);
+      const targetCount = Math.floor(progress * this.demoPoints.length);
 
-      while (pointIndex < targetCount && pointIndex < demoPoints.length) {
-        this.strokeBuffer.addPoint(demoPoints[pointIndex].x, demoPoints[pointIndex].y);
+      while (pointIndex < targetCount && pointIndex < this.demoPoints.length) {
+        this.strokeBuffer.addPoint(this.demoPoints[pointIndex].x, this.demoPoints[pointIndex].y);
         pointIndex++;
       }
+
+      this.currentDemoDeviations = this.demoDeviations.slice(0, pointIndex);
 
       this.render();
 
@@ -359,6 +388,7 @@ export class DrawingController {
           this.demoTimeoutId = setTimeout(() => {
             if (this.isDemoActive) {
               this.strokeBuffer.clear();
+              this.currentDemoDeviations = [];
               this.render();
               this.startDemo();
             }
@@ -383,6 +413,9 @@ export class DrawingController {
       this.demoTimeoutId = null;
     }
     this.isDemoActive = false;
+    this.demoPoints = [];
+    this.demoDeviations = [];
+    this.currentDemoDeviations = [];
   }
 
   public isDemoPlaying(): boolean {
@@ -441,6 +474,9 @@ export class DrawingController {
       this.view.renderEvaluatedStroke(this.liveEvaluation.deviations);
       const liveAccuracy = this.liveEvaluation.accuracy;
       this.view.renderBanner(`Accuracy: ${liveAccuracy}%`);
+    } else if (this.isDemoActive && this.currentDemoDeviations.length >= 2) {
+      // Demo drawing in progress: render with dynamic color gradient, NO scoring/results banner
+      this.view.renderEvaluatedStroke(this.currentDemoDeviations);
     } else if (this.lastValidationMessage) {
       // Incomplete wave feedback: clean, uniform, without additional info
       if (points.length > 0) {

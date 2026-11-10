@@ -241,24 +241,65 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       expect(controller.isDemoPlaying()).toBe(false);
     });
 
-    it('should not score or display results in demo mode', () => {
-      vi.useFakeTimers();
+    it('should not score or display results in demo mode, and should render with gradient deviations', () => {
+      let rAFCallback: FrameRequestCallback | null = null;
+      vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => {
+        rAFCallback = cb;
+        return 123;
+      }));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
       const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
         onEvaluationComplete,
       });
 
-      controller.startDemo();
+      controller.startDemo({ tiltAngle: 0.25 });
       expect(controller.isDemoPlaying()).toBe(true);
 
-      // Fast-forward demo animation
-      vi.advanceTimersByTime(2000);
+      // Trigger animation frame callback
+      expect(rAFCallback).toBeDefined();
+      if (rAFCallback) {
+        (rAFCallback as (time: number) => void)(performance.now() + 500);
+      }
 
-      expect(onEvaluationComplete).not.toHaveBeenCalled();
+      expect(mockView.renderEvaluatedStroke).toHaveBeenCalled();
+      const callArgs = vi.mocked(mockView.renderEvaluatedStroke).mock.calls;
+      const lastCallDeviations = callArgs[callArgs.length - 1][0];
+      expect(lastCallDeviations.length).toBeGreaterThan(2);
+      expect(lastCallDeviations[0]).toHaveProperty('color');
+      expect(lastCallDeviations[0].color).toMatch(/^hsl\(/);
+
+      // Verify no banners rendered and no scoring evaluation produced
       expect(mockView.renderCalculationBanner).not.toHaveBeenCalled();
+      expect(mockView.renderBanner).not.toHaveBeenCalled();
+      expect(onEvaluationComplete).not.toHaveBeenCalled();
       expect(controller.getLastEvaluation()).toBeNull();
 
       controller.stopDemo();
-      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    it('should support tilted sine waves in demo mode', () => {
+      let rAFCallback: FrameRequestCallback | null = null;
+      vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => {
+        rAFCallback = cb;
+        return 123;
+      }));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+
+      // Start with explicit tilt
+      controller.startDemo({ tiltAngle: -0.32 });
+      expect(controller.isDemoPlaying()).toBe(true);
+
+      if (rAFCallback) {
+        (rAFCallback as (time: number) => void)(performance.now() + 600);
+      }
+      expect(strokeBuffer.getLength()).toBeGreaterThan(5);
+
+      controller.stopDemo();
+      vi.unstubAllGlobals();
     });
   });
 });
