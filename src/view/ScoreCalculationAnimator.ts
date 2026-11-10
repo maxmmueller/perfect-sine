@@ -137,14 +137,14 @@ export class ScoreCalculationAnimator {
       // Exponential ease-out counting up
       currentScore = Math.round(this.targetScore * (0.15 + 0.85 * (1 - Math.pow(1 - p2, 2))));
     }
-    // Phase 3: Impact & Celebration (0.8 to 1.0)
+    // Phase 3: Impact & Celebration (0.8 to 1.0+)
     else {
       phase = progress < 1.0 ? 'celebrating' : 'settled';
       currentCycles = this.fullCycles;
       currentScore = this.targetScore;
       waveTracerProgress = 1.0;
 
-      const p3 = (progress - 0.8) / 0.2;
+      const p3 = Math.min(1.0, (progress - 0.8) / 0.2);
 
       // Spawn celebratory particles once upon reaching impact
       if (!this.particlesSpawned) {
@@ -152,24 +152,33 @@ export class ScoreCalculationAnimator {
         this.particlesSpawned = true;
       }
 
-      // Dynamic scale bounce based on tier
-      const bounceIntensity =
-        this.tier === 'legendary' ? 0.38 : this.tier === 'high' ? 0.24 : this.tier === 'medium' ? 0.12 : 0.04;
-      scaleFactor = 1.0 + bounceIntensity * Math.sin(p3 * Math.PI) * (1 - p3 * 0.4);
+      if (progress < 1.0) {
+        // Dynamic scale bounce based on tier
+        const bounceIntensity =
+          this.tier === 'legendary' ? 0.38 : this.tier === 'high' ? 0.24 : this.tier === 'medium' ? 0.12 : 0.04;
+        scaleFactor = 1.0 + bounceIntensity * Math.sin(p3 * Math.PI) * (1 - p3 * 0.4);
 
-      // Expanding ripple for high and legendary tiers
-      if (this.tier === 'high' || this.tier === 'legendary') {
-        rippleRadius = p3 * (this.tier === 'legendary' ? 140 : 80);
-        rippleAlpha = Math.max(0, (1 - p3) * (this.tier === 'legendary' ? 0.8 : 0.5));
-      }
-
-      if (progress >= 1.0) {
-        this.active = false;
+        // Expanding ripple for high and legendary tiers
+        if (this.tier === 'high' || this.tier === 'legendary') {
+          rippleRadius = p3 * (this.tier === 'legendary' ? 140 : 80);
+          rippleAlpha = Math.max(0, (1 - p3) * (this.tier === 'legendary' ? 0.8 : 0.5));
+        }
+      } else {
+        scaleFactor = 1.0;
+        rippleRadius = 0;
+        rippleAlpha = 0;
       }
     }
 
-    // Update existing particles physics
+    // Update existing particles physics & fadeout
     this.updateParticles();
+
+    // End active animation once progress reached 1.0 and all particles have faded away
+    // Failsafe: elapsed >= duration + 800ms forces termination even if frame rate stuttered
+    if ((progress >= 1.0 && this.particles.length === 0) || elapsed >= this.duration + 800) {
+      this.particles = [];
+      this.active = false;
+    }
 
     return {
       isActive: this.active,
@@ -203,17 +212,17 @@ export class ScoreCalculationAnimator {
 
     this.particles = [];
     for (let i = 0; i < count; i++) {
-      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
-      const speed = (this.tier === 'legendary' ? 3.5 : 2.0) + Math.random() * (this.tier === 'legendary' ? 4.5 : 2.5);
+      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.35;
+      const speed = (this.tier === 'legendary' ? 3.0 : 2.0) + Math.random() * (this.tier === 'legendary' ? 3.5 : 2.0);
       const color = colors[i % colors.length];
-      const maxLife = 35 + Math.floor(Math.random() * 25);
+      const maxLife = 24 + Math.floor(Math.random() * 12); // ~400ms to 600ms lifetime
 
       this.particles.push({
         x: this.originX,
         y: this.originY,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 1.2, // slight upward kick
-        size: this.tier === 'legendary' ? 3.5 + Math.random() * 2.5 : 2.5 + Math.random() * 1.5,
+        vy: Math.sin(angle) * speed - 1.0,
+        size: this.tier === 'legendary' ? 3.5 + Math.random() * 2.0 : 2.5 + Math.random() * 1.5,
         color,
         alpha: 1.0,
         maxLife,
@@ -229,11 +238,12 @@ export class ScoreCalculationAnimator {
       p.life++;
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += 0.08; // gravity
-      p.vx *= 0.98; // friction
+      p.vy += 0.08; // subtle gravity
+      p.vx *= 0.95; // drag
+      p.vy *= 0.95;
       p.alpha = Math.max(0, 1 - p.life / p.maxLife);
 
-      if (p.life >= p.maxLife) {
+      if (p.life >= p.maxLife || p.alpha <= 0.01) {
         this.particles.splice(i, 1);
       }
     }

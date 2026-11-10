@@ -440,11 +440,7 @@ export class DrawingController {
       // Live drawing in progress with real-time gradient coloring
       this.view.renderEvaluatedStroke(this.liveEvaluation.deviations);
       const liveAccuracy = this.liveEvaluation.accuracy;
-      const cycles = this.liveEvaluation.fittedSine.fullCycles.toFixed(1);
-      this.view.renderBanner(
-        `Accuracy: ${liveAccuracy}%`,
-        `Drawing wave: ${cycles} cycles`
-      );
+      this.view.renderBanner(`Accuracy: ${liveAccuracy}%`);
     } else if (this.lastValidationMessage) {
       // Incomplete wave feedback: clean, uniform, without additional info
       if (points.length > 0) {

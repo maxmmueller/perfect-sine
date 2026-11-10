@@ -271,8 +271,8 @@ export class CanvasView {
     this.ctx.fillStyle = accColor;
     this.ctx.fillText(`Accuracy: ${state.accuracy}%`, cx, isMobile ? 54 : 66);
 
-    // 2. Unten drunter: Animated calculation from sine length (cycles) to Score
-    const calcY = isMobile ? 90 : 106;
+    // 2. Unten drunter: Animated calculation from sine length to Score (no cycles text, no overlapping mini-wave)
+    const calcY = isMobile ? 92 : 110;
 
     // Optional celebratory ripple for high & legendary tiers
     if (state.rippleRadius > 0 && state.rippleAlpha > 0) {
@@ -286,37 +286,7 @@ export class CanvasView {
       this.ctx.stroke();
     }
 
-    // Mini sine wave indicator (~64px wide) placed centered above the calculation
-    const miniWaveWidth = isMobile ? 48 : 64;
-    const miniWaveHeight = 6;
-    const miniWaveStartX = cx - miniWaveWidth / 2;
-    const miniWaveY = calcY - (isMobile ? 16 : 20);
-
-    this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-    this.ctx.lineWidth = 1.5;
-    this.ctx.beginPath();
-    for (let x = 0; x <= miniWaveWidth; x += 2) {
-      const angle = (x / miniWaveWidth) * Math.PI * 2 * Math.max(1, state.currentCycles);
-      const y = miniWaveY + Math.sin(angle) * miniWaveHeight;
-      if (x === 0) this.ctx.moveTo(miniWaveStartX + x, y);
-      else this.ctx.lineTo(miniWaveStartX + x, y);
-    }
-    this.ctx.stroke();
-
-    // Pulse bead on mini wave during measuring
-    if (state.phase === 'measuring') {
-      const beadX = miniWaveStartX + miniWaveWidth * state.waveTracerProgress;
-      const beadAngle = state.waveTracerProgress * Math.PI * 2 * Math.max(1, state.currentCycles);
-      const beadY = miniWaveY + Math.sin(beadAngle) * miniWaveHeight;
-      this.ctx.fillStyle = '#ffffff';
-      this.ctx.beginPath();
-      this.ctx.arc(beadX, beadY, 3, 0, Math.PI * 2);
-      this.ctx.fill();
-    }
-    this.ctx.restore();
-
-    // Calculation text formatting based on animation phase
+    // Calculation text formatting based on animation phase (clean, no cycles count)
     let scoreColor = '#38bdf8';
     if (state.targetScore < 300) scoreColor = '#ef4444';
     else if (state.targetScore < 700) scoreColor = '#f59e0b';
@@ -326,15 +296,11 @@ export class CanvasView {
     if (state.phase === 'measuring') {
       this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       this.ctx.fillStyle = '#94a3b8';
-      this.ctx.fillText(`Measuring Length: ${state.currentCycles.toFixed(1)} cycles...`, cx, calcY);
+      this.ctx.fillText('Measuring Wave Length...', cx, calcY);
     } else if (state.phase === 'multiplying') {
       this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       this.ctx.fillStyle = '#cbd5e1';
-      this.ctx.fillText(
-        `${state.accuracy}%  ×  ${state.fullCycles.toFixed(1)} cycles  ➔  Score: ${state.currentScore.toLocaleString()} pts`,
-        cx,
-        calcY
-      );
+      this.ctx.fillText(`Length Bonus ➔ Score: ${state.currentScore.toLocaleString()} pts`, cx, calcY);
     } else {
       // Celebrating or settled: highlight score with scale bounce
       const finalFontSize = Math.round(subFontSize * state.scaleFactor);
@@ -343,11 +309,9 @@ export class CanvasView {
 
       let calcText = '';
       if (state.tier === 'legendary') {
-        calcText = `★  Score: ${state.targetScore.toLocaleString()} pts  ★  (${state.fullCycles.toFixed(1)} cycles)`;
-      } else if (state.tier === 'high') {
-        calcText = `Score: ${state.targetScore.toLocaleString()} pts  ·  ${state.fullCycles.toFixed(1)} cycles`;
+        calcText = `★  Score: ${state.targetScore.toLocaleString()} pts  ★`;
       } else {
-        calcText = `Score: ${state.targetScore.toLocaleString()} pts  (${state.fullCycles.toFixed(1)} cycles)`;
+        calcText = `Score: ${state.targetScore.toLocaleString()} pts`;
       }
       this.ctx.fillText(calcText, cx, calcY);
     }
@@ -355,6 +319,7 @@ export class CanvasView {
     // Render celebratory particles
     if (state.particles.length > 0) {
       for (const p of state.particles) {
+        if (p.alpha <= 0.01) continue;
         this.ctx.save();
         this.ctx.globalAlpha = p.alpha;
         this.ctx.fillStyle = p.color;

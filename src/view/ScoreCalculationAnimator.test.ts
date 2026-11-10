@@ -74,21 +74,30 @@ describe('ScoreCalculationAnimator', () => {
     expect(stateCelebrating.particles.length).toBeGreaterThan(0);
     expect(stateCelebrating.rippleRadius).toBeGreaterThan(0);
 
-    // Settled phase (t >= 1600ms, progress = 1.0)
+    // Settled phase (t >= 1600ms, progress = 1.0): score is settled, particles are fading out
     const tSettled = performance.now() + 1700;
     const stateSettled = animator.update(tSettled);
     expect(stateSettled.phase).toBe('settled');
     expect(stateSettled.currentScore).toBe(1000);
+    expect(animator.isActive()).toBe(true);
+
+    // After particle fadeout completes
+    const tFinished = performance.now() + 2500;
+    const stateFinished = animator.update(tFinished);
+    expect(stateFinished.particles.length).toBe(0);
     expect(animator.isActive()).toBe(false);
   });
 
   it('should scale particle counts and ripple intensity with score tier', () => {
-    // Low tier (<300 pts): 0 particles, 0 ripple
+    // Low tier (<300 pts): 0 particles, 0 ripple, terminates immediately upon reaching 1.0 progress
     const lowAnim = new ScoreCalculationAnimator();
     lowAnim.start(createMockEvaluation(180, 40, 1.0), 100, 100);
     const lowState = lowAnim.update(performance.now() + 1400);
     expect(lowState.particles.length).toBe(0);
     expect(lowState.rippleRadius).toBe(0);
+    const lowSettled = lowAnim.update(performance.now() + 1650);
+    expect(lowSettled.phase).toBe('settled');
+    expect(lowAnim.isActive()).toBe(false);
 
     // Medium tier (300-699 pts): 6 particles
     const medAnim = new ScoreCalculationAnimator();
