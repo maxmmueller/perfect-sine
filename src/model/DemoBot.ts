@@ -22,6 +22,14 @@ export interface DemoWaveOptions {
   readonly tiltAngle?: number;
   /** Human tremor/imperfection magnitude in pixels (default 2.0, 0 = pristine) */
   readonly jitterLevel?: number;
+  /** Runaway drift / hand slip magnitude in pixels (e.g. 25-35px causes orange/red deviations, default 0) */
+  readonly runawayDrift?: number;
+  /** Center point along stroke progression for runaway drift (0.0 to 1.0, default 0.6) */
+  readonly runawayCenter?: number;
+  /** Spread of the runaway drift along progression (default 0.15) */
+  readonly runawaySpread?: number;
+  /** If true, runaway drift persists to the end of the stroke (default false) */
+  readonly runawayEnd?: boolean;
   /** Drawing speed in pixels per second (default 250) */
   readonly speedPxPerSec?: number;
   /** Step size in pixels along the wave baseline (default 3) */
@@ -90,6 +98,11 @@ export class DemoBot {
       r2: 1.0,
     };
 
+    const runawayDrift = options.runawayDrift ?? 0;
+    const runawayCenter = options.runawayCenter ?? 0.60;
+    const runawaySpread = Math.max(0.04, options.runawaySpread ?? 0.14);
+    const runawayEnd = options.runawayEnd ?? false;
+
     // Organic hand-drawing dynamics (smooth, realistic, non-jagged):
     // 1. Natural peak/trough amplitude modulation across cycles
     const ampModFreq = omega * 0.45;
@@ -126,8 +139,20 @@ export class DemoBot {
       // 3. Gentle baseline drift from wrist/arm pivot
       const baselineDrift = driftAmp * Math.sin(progress * Math.PI + driftPhase);
 
+      // 4. Runaway drift / hand slip ("aus dem Ufer laufen")
+      let runawayOffset = 0;
+      if (runawayDrift !== 0) {
+        if (runawayEnd) {
+          const sigmoid = 1 / (1 + Math.exp(-12 * (progress - runawayCenter)));
+          runawayOffset = runawayDrift * sigmoid;
+        } else {
+          const dProg = (progress - runawayCenter) / runawaySpread;
+          runawayOffset = runawayDrift * Math.exp(-0.5 * dProg * dProg);
+        }
+      }
+
       const localX = xPrime;
-      const localY = idealY + baselineDrift;
+      const localY = idealY + baselineDrift + runawayOffset;
 
       // 4. Rotate and translate into screen space
       const screenX = centerX + localX * cosTilt - localY * sinTilt;

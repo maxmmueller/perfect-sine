@@ -289,8 +289,8 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
 
       const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
 
-      // Start with explicit tilt
-      controller.startDemo({ tiltAngle: -0.32 });
+      // Start with explicit tilt on a pristine wave
+      controller.startDemo({ tiltAngle: -0.32, runawayDrift: 0, jitterLevel: 1.5 });
       expect(controller.isDemoPlaying()).toBe(true);
 
       if (rAFCallback) {
@@ -369,6 +369,114 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       expect(controller.getDemoHistory().length).toBe(0);
       expect(controller.isDemoPlaying()).toBe(false);
 
+      vi.unstubAllGlobals();
+    });
+
+    it('should detect wave overlaps correctly using checkWavesOverlap', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      const waveA = [
+        { x: 100, y: 150 },
+        { x: 200, y: 150 },
+      ];
+      // Wave B right on top of Wave A
+      const waveBOverlap = [
+        { x: 120, y: 160 },
+        { x: 220, y: 160 },
+      ];
+      // Wave C separated far below Wave A
+      const waveCSeparated = [
+        { x: 100, y: 400 },
+        { x: 200, y: 400 },
+      ];
+
+      expect(controller.checkWavesOverlap(waveA, waveBOverlap, 25)).toBe(true);
+      expect(controller.checkWavesOverlap(waveA, waveCSeparated, 25)).toBe(false);
+      expect(controller.checkWavesOverlap([], waveA)).toBe(false);
+    });
+
+    it('should place consecutive demo waves without overlapping visible historical waves', () => {
+      let rAFCallback: FrameRequestCallback | null = null;
+      let timeoutCallback: (() => void) | null = null;
+
+      vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => {
+        rAFCallback = cb;
+        return 123;
+      }));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      vi.stubGlobal('setTimeout', vi.fn((cb: () => void) => {
+        timeoutCallback = cb;
+        return 456 as unknown as ReturnType<typeof setTimeout>;
+      }));
+      vi.stubGlobal('clearTimeout', vi.fn());
+
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      // Wave 1 in upper zone
+      controller.startDemo({ centerY: 180, amplitude: 30, speedPxPerSec: 600 });
+
+      // Finish wave 1
+      if (rAFCallback) {
+        (rAFCallback as (time: number) => void)(performance.now() + 5000);
+      }
+      if (timeoutCallback) {
+        (timeoutCallback as () => void)();
+      }
+
+      // Wave 2 should automatically avoid overlapping Wave 1
+      const history = controller.getDemoHistory();
+      expect(history.length).toBe(1);
+      const wave1Points = history[0].deviations.map((d) => d.point);
+
+      // Trigger animation for wave 2
+      if (rAFCallback) {
+        (rAFCallback as (time: number) => void)(performance.now() + 5000);
+      }
+
+      const callArgs = vi.mocked(mockView.renderEvaluatedStroke).mock.calls;
+      const lastCall = callArgs[callArgs.length - 1][0];
+      const wave2Points = lastCall.map((d) => d.point);
+
+      // Verify that wave 2 does not overlap with wave 1
+      expect(controller.checkWavesOverlap(wave2Points, wave1Points, 20)).toBe(false);
+
+      controller.stopDemo();
+      vi.unstubAllGlobals();
+    });
+
+    it('should support imperfect demo waves that run off course and turn red ("aus dem Ufer laufen")', () => {
+      let rAFCallback: FrameRequestCallback | null = null;
+      vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => {
+        rAFCallback = cb;
+        return 123;
+      }));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+
+      // Start demo with runaway drift
+      controller.startDemo({
+        runawayDrift: 32,
+        runawayCenter: 0.6,
+        speedPxPerSec: 500,
+      });
+
+      // Animate through full stroke
+      if (rAFCallback) {
+        (rAFCallback as (time: number) => void)(performance.now() + 3000);
+      }
+
+      const callArgs = vi.mocked(mockView.renderEvaluatedStroke).mock.calls;
+      const lastCallDeviations = callArgs[callArgs.length - 1][0];
+      const hues = lastCallDeviations.map((d) => d.hue);
+
+      // Should have green points in normal regions
+      expect(hues.filter((h) => h >= 90).length).toBeGreaterThan(20);
+
+      // Should have orange/red points in the runaway slip region
+      const redPoints = lastCallDeviations.filter((d) => d.hue <= 25);
+      expect(redPoints.length).toBeGreaterThan(3);
+      expect(redPoints[0].color).toMatch(/^hsl\(([0-9]|1[0-9]|2[0-5]),/);
+
+      controller.stopDemo();
       vi.unstubAllGlobals();
     });
   });
