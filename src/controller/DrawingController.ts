@@ -7,7 +7,7 @@ import { TiltDetector } from '../model/TiltDetector';
 import { CoordinateSystem, CoordinateFrame } from '../model/CoordinateSystem';
 import { DemoBot, DemoWaveOptions } from '../model/DemoBot';
 import { IScoreStrategy } from '../model/scoring/IScoreStrategy';
-import { RmseScoreStrategy } from '../model/scoring/RmseScoreStrategy';
+import { UnifiedEnsembleScoreStrategy } from '../model/scoring/UnifiedEnsembleScoreStrategy';
 import { ScoreStrategyManager, ScorerEvaluationItem } from '../model/scoring/ScoreStrategyManager';
 import { StrokeEvaluation } from '../model/types';
 
@@ -49,7 +49,7 @@ export class DrawingController {
     this.stateMachine = stateMachine;
     this.strokeBuffer = strokeBuffer;
     this.strategyManager = options?.strategyManager;
-    this.scoreStrategy = options?.scoreStrategy ?? options?.strategyManager?.getActiveStrategy() ?? new RmseScoreStrategy();
+    this.scoreStrategy = options?.scoreStrategy ?? options?.strategyManager?.getActiveStrategy() ?? new UnifiedEnsembleScoreStrategy();
     this.onEvaluationComplete = options?.onEvaluationComplete;
     this.onMultiEvaluationComplete = options?.onMultiEvaluationComplete;
     this.onReset = options?.onReset;
