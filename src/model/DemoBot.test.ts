@@ -191,4 +191,49 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
       expect(dev.color).toBe('hsl(120, 100%, 50%)');
     }
   });
+
+  it('should support runaway drift ("aus dem Ufer laufen") that transitions into orange and red', () => {
+    const { deviations } = DemoBot.generateStrokeWithDeviations({
+      amplitude: 45,
+      wavelength: 180,
+      cycles: 3.0,
+      jitterLevel: 1.5,
+      runawayDrift: 30, // 30px slip off the intended course
+      runawayCenter: 0.6,
+      runawaySpread: 0.12,
+    });
+
+    const hues = deviations.map((d) => d.hue);
+    const minHue = Math.min(...hues);
+    const maxHue = Math.max(...hues);
+    const redPoints = deviations.filter((d) => d.hue <= 25);
+    const greenPoints = deviations.filter((d) => d.hue >= 90);
+
+    // Initial and normal parts should be solid green
+    expect(greenPoints.length).toBeGreaterThan(30);
+    expect(maxHue).toBeGreaterThanOrEqual(110);
+
+    // Runaway slip should reach deep orange/red
+    expect(minHue).toBeLessThanOrEqual(20);
+    expect(redPoints.length).toBeGreaterThan(5);
+    expect(redPoints[0].color).toMatch(/^hsl\(([0-9]|1[0-9]|2[0-5]),/);
+  });
+
+  it('should support end runaway drift persisting to the end of stroke', () => {
+    const { deviations } = DemoBot.generateStrokeWithDeviations({
+      amplitude: 40,
+      wavelength: 160,
+      cycles: 2.5,
+      runawayDrift: 28,
+      runawayCenter: 0.7,
+      runawayEnd: true,
+    });
+
+    const lastDeviations = deviations.slice(-10);
+    // End points should be strongly off-course (red/orange)
+    for (const d of lastDeviations) {
+      expect(d.distance).toBeGreaterThan(15);
+      expect(d.hue).toBeLessThan(60);
+    }
+  });
 });
