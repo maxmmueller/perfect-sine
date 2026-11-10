@@ -36,6 +36,8 @@ export interface DemoWaveOptions {
   readonly stepPx?: number;
   /** Optional pseudo-random number generator for deterministic testing */
   readonly rng?: () => number;
+  /** Optional wave imperfection profile for demo variety (pristine, wobbly, uneven, runaway) */
+  readonly profile?: 'pristine' | 'wobbly' | 'uneven' | 'runaway';
 }
 
 export interface DemoWaveResult {
@@ -98,28 +100,79 @@ export class DemoBot {
       r2: 1.0,
     };
 
-    const runawayDrift = options.runawayDrift ?? 0;
-    const runawayCenter = options.runawayCenter ?? 0.60;
-    const runawaySpread = Math.max(0.04, options.runawaySpread ?? 0.14);
-    const runawayEnd = options.runawayEnd ?? false;
+    let profile = options.profile;
+    if (!profile) {
+      if (options.runawayDrift && Math.abs(options.runawayDrift) >= 20) {
+        profile = 'runaway';
+      } else if (jitterLevel >= 3.0) {
+        profile = 'wobbly';
+      } else if (jitterLevel === 0) {
+        profile = 'pristine';
+      }
+    }
+
+    let ampModDepth = 0;
+    let smoothTremorAmp = 0;
+    let skewFactor = 0;
+    let driftAmp = 0;
+    let runawayDrift = options.runawayDrift ?? 0;
+    let runawayCenter = options.runawayCenter ?? 0.60;
+    let runawaySpread = Math.max(0.04, options.runawaySpread ?? 0.14);
+    let runawayEnd = options.runawayEnd ?? false;
+
+    if (profile === 'pristine' || jitterLevel === 0) {
+      ampModDepth = jitterLevel > 0 ? (jitterLevel / 2.5) * 0.05 : 0;
+      smoothTremorAmp = jitterLevel > 0 ? (jitterLevel / 2.5) * 1.0 : 0;
+      driftAmp = jitterLevel > 0 ? (jitterLevel / 2.5) * 1.2 : 0;
+      skewFactor = jitterLevel > 0 ? 0.02 : 0;
+    } else if (profile === 'wobbly') {
+      // Shaky, hesitant human hand: noticeable tremor and baseline wave, showing rich lime & yellow colors (8-16px deviations)
+      ampModDepth = 0.16 + (jitterLevel / 4.0) * 0.12;
+      smoothTremorAmp = 4.5 + (jitterLevel / 4.0) * 4.0;
+      skewFactor = 0.08;
+      driftAmp = 5.5 + (jitterLevel / 4.0) * 4.0;
+    } else if (profile === 'uneven') {
+      // Uneven stroke with peak overshoot / rushed acceleration: transitions into yellow, amber and orange (16-26px deviations)
+      ampModDepth = 0.35;
+      smoothTremorAmp = 5.5;
+      skewFactor = 0.12;
+      driftAmp = 8.0;
+      if (runawayDrift === 0) {
+        const sign = rng() < 0.5 ? 1 : -1;
+        runawayDrift = sign * (19 + rng() * 8);
+        runawayCenter = 0.35 + rng() * 0.38;
+        runawaySpread = 0.16;
+      }
+    } else if (profile === 'runaway') {
+      // Runaway drift / hand slip ("aus dem Ufer laufen"): clearly veers off target into red and orange (28-40px deviations)
+      ampModDepth = options.runawayDrift !== undefined ? 0.08 : 0.22;
+      smoothTremorAmp = options.runawayDrift !== undefined ? 2.0 : 5.0;
+      driftAmp = options.runawayDrift !== undefined ? 2.0 : 7.0;
+      if (runawayDrift === 0) {
+        const sign = rng() < 0.5 ? 1 : -1;
+        runawayDrift = sign * (28 + rng() * 10);
+        runawayCenter = 0.45 + rng() * 0.25;
+        runawaySpread = 0.15;
+        runawayEnd = rng() < 0.40;
+      }
+    } else {
+      ampModDepth = jitterLevel > 0 ? Math.min(0.20, (jitterLevel / 2.5) * 0.10) : 0;
+      smoothTremorAmp = jitterLevel > 0 ? (jitterLevel / 2.5) * 3.5 : 0;
+      skewFactor = jitterLevel > 0 ? (jitterLevel / 2.5) * 0.05 : 0;
+      driftAmp = jitterLevel > 0 ? (jitterLevel / 2.5) * 3.5 : 0;
+    }
 
     // Organic hand-drawing dynamics (smooth, realistic, non-jagged):
     // 1. Natural peak/trough amplitude modulation across cycles
     const ampModFreq = omega * 0.45;
     const ampModPhase = rng() * Math.PI * 2;
-    const ampModDepth = jitterLevel > 0 ? Math.min(0.12, (jitterLevel / 2.5) * 0.07) : 0;
 
     // 2. Smooth neuromuscular oscillation (smooth continuous wave, no discrete white noise)
     const smoothTremorFreq = omega * 4.2;
     const smoothTremorPhase = rng() * Math.PI * 2;
-    const smoothTremorAmp = jitterLevel > 0 ? (jitterLevel / 2.5) * 1.5 : 0;
 
-    // 3. Fast-stroke asymmetric momentum / hand drag (slight 2nd harmonic turning skew)
-    const skewFactor = jitterLevel > 0 ? (jitterLevel / 2.5) * 0.04 : 0;
-
-    // 4. Smooth arm/wrist pivot baseline drift
+    // 3. Smooth arm/wrist pivot baseline drift
     const driftPhase = rng() * Math.PI * 2;
-    const driftAmp = jitterLevel > 0 ? (jitterLevel / 2.5) * 2.0 : 0;
 
     let currentTime = 0;
 

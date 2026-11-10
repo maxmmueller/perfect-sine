@@ -214,7 +214,7 @@ export class DrawingController {
 
     // Validate period coverage (at least 2*PI radians)
     const aligned = TiltDetector.transformPoints(points, fit.tilt);
-    const periodCheck = PeriodValidator.validate(aligned, fit.frequency);
+    const periodCheck = PeriodValidator.validate(aligned, fit.frequency, undefined, undefined, fit.amplitude);
 
     if (!periodCheck.isValid) {
       this.lastValidationMessage = periodCheck.message ?? 'Incomplete wave. Spanning >= 2π required.';
@@ -340,6 +340,10 @@ export class DrawingController {
           toAlpha: 0.42,
           alpha: 0.85,
         });
+        // Keep at most 2 fading historical waves to ensure ample canvas room without crowding
+        while (this.demoHistory.length > 2) {
+          this.demoHistory.shift();
+        }
       }
       this.strokeBuffer.clear();
       this.currentDemoDeviations = [];
@@ -351,144 +355,164 @@ export class DrawingController {
     const width = dims.width > 0 ? dims.width : 800;
     const height = dims.height > 0 ? dims.height : 600;
 
-    // Filter visible historical waves that should not be overlapped
-    const visiblePointsList = this.demoHistory
-      .filter((w) => w.alpha >= 0.08 && w.deviations.length >= 2)
-      .map((w) => w.deviations.map((d) => d.point));
-
-    // 1. Variable Amplitude a: broad variation from subtle waves (~20px) to tall, deep waves (~65px)
-    const amplitude = customOptions?.amplitude ?? 20 + Math.random() * 45;
-
-    // 2. Variable Frequency / Wavelength b: from tight compact waves (~95px) to wide sweeping waves (~290px)
-    const wavelength = customOptions?.wavelength ?? 95 + Math.random() * 195;
-
-    // 3. Variable Initial Phase c: randomize start angle in [0, 2*PI] so waves start at peaks, troughs, or slopes
-    const phase = customOptions?.phase ?? Math.random() * Math.PI * 2;
-
-    // 4. Baseline Tilt: ~50% of the time, apply a noticeable slant (~11° to ~24°)
-    const hasTilt = customOptions?.tiltAngle !== undefined ? true : Math.random() < 0.50;
-    const tiltSign = Math.random() < 0.5 ? 1 : -1;
-    const defaultTiltAngle = hasTilt
-      ? tiltSign * (0.18 + Math.random() * 0.20) // ~10° to 22° distinct tilt
-      : (Math.random() - 0.5) * 0.05; // horizontal with subtle human variance
-    const tiltAngle = customOptions?.tiltAngle ?? defaultTiltAngle;
-
-    // 5. Variable Length / Cycles: vary from short (1.2 - 1.8), medium (2.0 - 3.1), to long waves spanning across the canvas (3.2 - 5.0)
-    const maxCyclesForCanvas = Math.max(1.8, Math.min(5.0, (width * 0.86) / wavelength));
-    const cycleDice = Math.random();
-    let cycles: number;
-    if (customOptions?.cycles !== undefined) {
-      cycles = customOptions.cycles;
-    } else if (cycleDice < 0.28) {
-      cycles = 1.2 + Math.random() * 0.6; // Short concise wave (1.2 - 1.8)
-    } else if (cycleDice < 0.65) {
-      cycles = Math.min(maxCyclesForCanvas, 2.0 + Math.random() * 1.1); // Medium wave (2.0 - 3.1)
-    } else {
-      cycles = Math.min(maxCyclesForCanvas, 3.2 + Math.random() * 1.8); // Long wave spanning across canvas (3.2 - 5.0)
-    }
-
-    const centerX = customOptions?.centerX ?? width * (0.42 + (Math.random() - 0.5) * 0.18);
-
-    // 6. Variable Drawing Speed: dynamically vary from fast, brisk hand movements (~560-900 px/s) to deliberate waves
-    const speedDice = Math.random();
-    const speedPxPerSec = customOptions?.speedPxPerSec ?? (
-      speedDice < 0.45
-        ? 560 + Math.random() * 340 // Fast brisk stroke (completes in ~0.5s - 0.9s)
-        : speedDice < 0.80
-        ? 340 + Math.random() * 180 // Fluid medium hand stroke (~1.0s - 1.4s)
-        : 220 + Math.random() * 100 // Calm deliberate stroke (~1.5s - 1.8s)
-    );
-
-    // 7. Human Imperfection Variety: pristine (50%), moderately wobbly (25%), or out-of-control / hand slip (25%)
-    // Hand slip waves ("aus dem Ufer laufen") deviate by 25-36px and dynamically turn orange and red!
-    const imperfectionDice = Math.random();
-    let jitterLevel = 1.6;
-    let runawayDrift = 0;
-    let runawayCenter = 0.60;
-    let runawaySpread = 0.14;
-    let runawayEnd = false;
-
-    if (customOptions?.runawayDrift !== undefined) {
-      runawayDrift = customOptions.runawayDrift;
-      runawayCenter = customOptions.runawayCenter ?? 0.60;
-      runawaySpread = customOptions.runawaySpread ?? 0.14;
-      runawayEnd = customOptions.runawayEnd ?? false;
-      jitterLevel = customOptions.jitterLevel ?? 1.8;
-    } else if (imperfectionDice < 0.25) {
-      // 25% chance: Imperfect wave that runs off course ("aus dem Ufer laufen") -> turns orange and red
-      const driftSign = Math.random() < 0.5 ? 1 : -1;
-      runawayDrift = driftSign * (25 + Math.random() * 10); // 25px - 35px offset (exceeds 30px tolerance)
-      runawayCenter = 0.45 + Math.random() * 0.28;
-      runawaySpread = 0.10 + Math.random() * 0.08;
-      runawayEnd = Math.random() < 0.35;
-      jitterLevel = 2.0 + Math.random() * 1.4;
-    } else if (imperfectionDice < 0.50) {
-      // 25% chance: Slightly wobbly wave with yellow/lime transitions
-      jitterLevel = 2.6 + Math.random() * 1.5;
-    } else {
-      // 50% chance: Smooth, accurate wave with solid green hue
-      jitterLevel = 1.0 + Math.random() * 0.8;
-    }
-
-    // 8. Collision-Free Placement: partition canvas into distinct vertical zones so waves NEVER overlap
     const topSafeMargin = 95;
     const bottomSafeMargin = 60;
     const usableHeight = Math.max(160, height - topSafeMargin - bottomSafeMargin);
-    const zones = [
-      topSafeMargin + usableHeight * 0.18,
-      topSafeMargin + usableHeight * 0.50,
-      topSafeMargin + usableHeight * 0.82,
-    ].sort(() => Math.random() - 0.5);
 
+    // Filter visible historical waves that must never be overlapped
+    let visiblePointsList = this.demoHistory
+      .filter((w) => w.alpha >= 0.08 && w.deviations.length >= 2)
+      .map((w) => w.deviations.map((d) => d.point));
+
+    // Imperfection Profile: diverse mix of qualities across demo cycles
+    // pristine (~35% green), wobbly (~30% lime/yellow), uneven (~20% yellow/orange), runaway (~15% red)
+    let defaultProfile: 'pristine' | 'wobbly' | 'uneven' | 'runaway';
+    if (
+      customOptions?.jitterLevel !== undefined &&
+      customOptions.jitterLevel <= 2.0 &&
+      (!customOptions.runawayDrift || customOptions.runawayDrift === 0)
+    ) {
+      defaultProfile = 'pristine';
+    } else {
+      const profileDice = Math.random();
+      defaultProfile =
+        profileDice < 0.35
+          ? 'pristine'
+          : profileDice < 0.65
+          ? 'wobbly'
+          : profileDice < 0.85
+          ? 'uneven'
+          : 'runaway';
+    }
+    const profile: 'pristine' | 'wobbly' | 'uneven' | 'runaway' = customOptions?.profile ?? defaultProfile;
+
+    const speedDice = Math.random();
+    const speedPxPerSec = customOptions?.speedPxPerSec ?? (
+      speedDice < 0.40
+        ? 580 + Math.random() * 320 // Fast brisk stroke
+        : speedDice < 0.75
+        ? 360 + Math.random() * 180 // Fluid medium stroke
+        : 240 + Math.random() * 100 // Deliberate smooth stroke
+    );
+
+    // Collision-free placement search: dynamically re-roll slot, cycles, and geometry
     let selectedResult: DemoWaveResult | null = null;
-    const maxAttempts = customOptions?.centerY !== undefined ? 1 : 12;
+    const maxAttempts = customOptions?.centerY !== undefined ? 1 : 24;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      let candidateCenterY: number;
+      // If historical waves are taking up too much room, progressively prune oldest
+      if (attempt === 12 && this.demoHistory.length > 1) {
+        this.demoHistory.shift();
+        visiblePointsList = this.demoHistory
+          .filter((w) => w.alpha >= 0.08 && w.deviations.length >= 2)
+          .map((w) => w.deviations.map((d) => d.point));
+      } else if (attempt === 18 && this.demoHistory.length > 0) {
+        this.demoHistory = [];
+        visiblePointsList = [];
+      }
+
+      const hasHistory = visiblePointsList.length > 0;
+
+      // 1. Amplitude a: vary between 22px and 52px (more compact when canvas is occupied)
+      const amplitude = customOptions?.amplitude ?? (
+        hasHistory ? 22 + Math.random() * 24 : 24 + Math.random() * 32
+      );
+
+      // 2. Frequency / Wavelength b: 100px to 240px
+      const wavelength = customOptions?.wavelength ?? (
+        hasHistory ? 100 + Math.random() * 120 : 110 + Math.random() * 150
+      );
+
+      // 3. Initial phase c: [0, 2*PI]
+      const phase = customOptions?.phase ?? Math.random() * Math.PI * 2;
+
+      // 4. Tilt: ~40% tilted
+      const hasTilt = customOptions?.tiltAngle !== undefined ? true : Math.random() < 0.40;
+      const tiltSign = Math.random() < 0.5 ? 1 : -1;
+      const defaultTiltAngle = hasTilt
+        ? tiltSign * (hasHistory ? 0.08 + Math.random() * 0.12 : 0.12 + Math.random() * 0.18)
+        : (Math.random() - 0.5) * 0.04;
+      const tiltAngle = customOptions?.tiltAngle ?? defaultTiltAngle;
+
+      // 5. Cycles: more compact (1.3 - 2.2) when historical waves exist, up to 3.6 on open canvas
+      let cycles: number;
+      if (customOptions?.cycles !== undefined) {
+        cycles = customOptions.cycles;
+      } else if (hasHistory) {
+        cycles = 1.3 + Math.random() * 0.9; // 1.3 - 2.2 cycles
+      } else {
+        const cDice = Math.random();
+        cycles = cDice < 0.35
+          ? 1.4 + Math.random() * 0.8 // short
+          : cDice < 0.70
+          ? 2.2 + Math.random() * 0.9 // medium
+          : 3.1 + Math.random() * 0.8; // long
+      }
+
+      // 6. Center coordinates: cycle through spatial sectors
+      let candidateCenterX = width * 0.50;
+      let candidateCenterY = topSafeMargin + usableHeight * 0.50;
+
+      if (customOptions?.centerX !== undefined) {
+        candidateCenterX = customOptions.centerX;
+      }
       if (customOptions?.centerY !== undefined) {
         candidateCenterY = customOptions.centerY;
+      } else if (hasHistory) {
+        const slot = attempt % 6;
+        if (slot === 0) {
+          candidateCenterX = width * (0.32 + Math.random() * 0.10);
+          candidateCenterY = topSafeMargin + usableHeight * (0.20 + Math.random() * 0.10);
+        } else if (slot === 1) {
+          candidateCenterX = width * (0.58 + Math.random() * 0.10);
+          candidateCenterY = topSafeMargin + usableHeight * (0.70 + Math.random() * 0.10);
+        } else if (slot === 2) {
+          candidateCenterX = width * (0.58 + Math.random() * 0.10);
+          candidateCenterY = topSafeMargin + usableHeight * (0.20 + Math.random() * 0.10);
+        } else if (slot === 3) {
+          candidateCenterX = width * (0.32 + Math.random() * 0.10);
+          candidateCenterY = topSafeMargin + usableHeight * (0.70 + Math.random() * 0.10);
+        } else if (slot === 4) {
+          candidateCenterX = width * 0.50;
+          candidateCenterY = topSafeMargin + usableHeight * (0.18 + Math.random() * 0.08);
+        } else {
+          candidateCenterX = width * 0.50;
+          candidateCenterY = topSafeMargin + usableHeight * (0.80 + Math.random() * 0.08);
+        }
       } else {
-        const baseZone = zones[attempt % zones.length];
-        const zoneJitter = (Math.random() - 0.5) * (usableHeight * 0.10);
-        candidateCenterY = Math.max(
-          topSafeMargin + amplitude + 10,
-          Math.min(height - bottomSafeMargin - amplitude - 10, baseZone + zoneJitter)
-        );
+        candidateCenterX = width * (0.44 + (Math.random() - 0.5) * 0.14);
+        candidateCenterY = topSafeMargin + usableHeight * (0.30 + Math.random() * 0.40);
       }
 
       const candidateResult = DemoBot.generateStrokeWithDeviations({
         width,
         height,
-        centerX,
+        centerX: candidateCenterX,
         centerY: candidateCenterY,
         amplitude,
         wavelength,
         cycles,
         phase,
         tiltAngle,
-        jitterLevel,
-        runawayDrift,
-        runawayCenter,
-        runawaySpread,
-        runawayEnd,
+        profile,
         speedPxPerSec,
         ...customOptions,
       });
 
       if (candidateResult.points.length === 0) continue;
 
-      // Verify zero overlap against any currently visible historical waves
+      // Verify zero overlap against all visible historical waves
       let overlaps = false;
       for (const histPoints of visiblePointsList) {
-        if (this.checkWavesOverlap(candidateResult.points, histPoints, 28)) {
+        if (this.checkWavesOverlap(candidateResult.points, histPoints, 35)) {
           overlaps = true;
           break;
         }
       }
 
-      if (!overlaps || attempt === maxAttempts - 1) {
+      if (!overlaps) {
         selectedResult = candidateResult;
-        if (!overlaps) break;
+        break;
       }
     }
 
@@ -572,7 +596,7 @@ export class DrawingController {
   public checkWavesOverlap(
     candidatePoints: readonly Point[],
     existingPoints: readonly Point[],
-    minDistance: number = 28
+    minDistance: number = 32
   ): boolean {
     if (candidatePoints.length === 0 || existingPoints.length === 0) return false;
 

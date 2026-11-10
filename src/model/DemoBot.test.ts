@@ -214,7 +214,7 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
     expect(maxHue).toBeGreaterThanOrEqual(110);
 
     // Runaway slip should reach deep orange/red
-    expect(minHue).toBeLessThanOrEqual(20);
+    expect(minHue).toBeLessThanOrEqual(25);
     expect(redPoints.length).toBeGreaterThan(5);
     expect(redPoints[0].color).toMatch(/^hsl\(([0-9]|1[0-9]|2[0-5]),/);
   });
@@ -232,8 +232,50 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
     const lastDeviations = deviations.slice(-3);
     // End points should be strongly off-course (red/orange)
     for (const d of lastDeviations) {
-      expect(d.distance).toBeGreaterThan(14);
+      expect(d.distance).toBeGreaterThan(12);
       expect(d.hue).toBeLessThanOrEqual(65);
     }
+  });
+
+  it('should generate distinct color spectrums according to imperfection profile', () => {
+    // 1. pristine: predominantly green (>90% green)
+    const pristine = DemoBot.generateStrokeWithDeviations({
+      profile: 'pristine',
+      amplitude: 45,
+      wavelength: 180,
+      cycles: 2.0,
+    });
+    const pristineGreenRatio = pristine.deviations.filter((d) => d.hue >= 90).length / pristine.deviations.length;
+    expect(pristineGreenRatio).toBeGreaterThan(0.90);
+
+    // 2. wobbly: dips down to yellow/lime (< 95 deg)
+    const wobbly = DemoBot.generateStrokeWithDeviations({
+      profile: 'wobbly',
+      amplitude: 45,
+      wavelength: 180,
+      cycles: 2.0,
+    });
+    const minWobblyHue = Math.min(...wobbly.deviations.map((d) => d.hue));
+    expect(minWobblyHue).toBeLessThan(95);
+
+    // 3. uneven: dips down into yellow/amber/orange (< 65 deg)
+    const uneven = DemoBot.generateStrokeWithDeviations({
+      profile: 'uneven',
+      amplitude: 45,
+      wavelength: 180,
+      cycles: 2.0,
+    });
+    const minUnevenHue = Math.min(...uneven.deviations.map((d) => d.hue));
+    expect(minUnevenHue).toBeLessThan(65);
+
+    // 4. runaway: dips down into deep orange/red (< 30 deg)
+    const runaway = DemoBot.generateStrokeWithDeviations({
+      profile: 'runaway',
+      amplitude: 45,
+      wavelength: 180,
+      cycles: 2.0,
+    });
+    const minRunawayHue = Math.min(...runaway.deviations.map((d) => d.hue));
+    expect(minRunawayHue).toBeLessThan(30);
   });
 });

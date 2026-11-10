@@ -13,12 +13,14 @@ export class PeriodValidator {
    * @param overrideFrequency Optional known frequency omega (rad/px). If omitted, estimated from zero-crossings and extrema.
    * @param minCycles Minimum full cycles required (defaults to 0.88 = ~0.9 period tolerance).
    * @param minAmplitude Minimum peak amplitude in pixels (defaults to 25px).
+   * @param fitAmplitude Optional fitted harmonic amplitude from SineFitter.
    */
   public static validate(
     points: readonly Point[],
     overrideFrequency?: number,
     minCycles: number = 0.88,
-    minAmplitude: number = 25
+    minAmplitude: number = 25,
+    fitAmplitude?: number
   ): PeriodValidationResult {
     if (!points || points.length < 5) {
       return {
@@ -177,7 +179,7 @@ export class PeriodValidator {
     if (
       omega > 0 &&
       amplitude >= minAmplitude &&
-      PeriodValidator.isZigzagWave(points, amplitude, omega, meanY)
+      PeriodValidator.isZigzagWave(points, amplitude, omega, meanY, fitAmplitude)
     ) {
       return {
         isValid: false,
@@ -201,135 +203,95 @@ export class PeriodValidator {
 
   /**
    * Evaluates whether the curve is a triangle or zigzag waveform with sharp apex cusps
-   * instead of smooth, rounded sinusoidal crests.
+   * and linear flank slopes instead of smooth, rounded sinusoidal crests.
+   *
+   * Invariant to stroke velocity, sampling density, and orientation by utilizing:
+   * 1. Uniform arc-length resampling (3px step)
+   * 2. Directional turn angle at vertices (window = 9px)
+   * 3. Mass distribution ratio (mean(|y|) / peak(|y|))
+   * 4. Fitted fundamental harmonic amplitude ratio
    *
    * @param points Baseline-aligned points.
    * @param amplitude Peak amplitude of the wave.
    * @param frequency Angular frequency omega (rad/px).
    * @param meanY Baseline mean Y offset.
+   * @param fitAmplitude Optional fitted harmonic amplitude from SineFitter.
    */
   public static isZigzagWave(
     points: readonly Point[],
     amplitude: number,
     frequency: number,
-    meanY: number
+    meanY: number,
+    fitAmplitude?: number
   ): boolean {
-    if (!points || points.length < 12 || amplitude < 15 || frequency <= 0) {
+    if (!points || points.length < 10 || amplitude < 15 || frequency <= 0) {
       return false;
     }
 
     const period = (2 * Math.PI) / frequency;
     if (period <= 0 || !isFinite(period)) return false;
 
-    // 1. Moving average 5-point smoothing to suppress high-frequency hand jitter
-    const sm: Point[] = [];
-    for (let i = 0; i < points.length; i++) {
-      let sumY = 0;
-      let count = 0;
-      const start = Math.max(0, i - 2);
-      const end = Math.min(points.length - 1, i + 2);
-      for (let j = start; j <= end; j++) {
-        sumY += points[j].y;
-        count++;
-      }
-      sm.push({ x: points[i].x, y: sumY / count });
+    // 1. Amplitude & Energy Distribution Ratios
+    const centeredY = points.map((p) => p.y - meanY);
+    const peakY = Math.max(...centeredY.map(Math.abs));
+    if (peakY < 15) return false;
+
+    const meanAbsY = centeredY.reduce((sum, y) => sum + Math.abs(y), 0) / centeredY.length;
+    const meanAbsRatio = meanAbsY / peakY; // Pure sine: ~0.637, Human sine: 0.50-0.65, Triangle: 0.30-0.42
+
+    const effectiveFitAmp = fitAmplitude ?? amplitude;
+    const fitToPeakRatio = effectiveFitAmp / peakY; // Pure sine: ~1.0, Triangle: 0.50-0.68
+
+    // 2. Uniform Arc-Length Resampling (step = 3px) to handle arbitrary drawing speeds / point densities
+    let totalLen = 0;
+    const dists = [0];
+    for (let i = 1; i < points.length; i++) {
+      totalLen += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+      dists.push(totalLen);
     }
 
-    // 2. Extrema detection & Apex Sharpness Evaluation
-    // deltaX: sampling distance around the apex (~8% of period, min 5px)
-    const deltaX = Math.max(5, period * 0.08);
-    let totalExtrema = 0;
-    let sharpExtrema = 0;
-    const dropRatios: number[] = [];
+    if (totalLen < 20) return false;
 
-    for (let i = 2; i < sm.length - 2; i++) {
-      const yNorm = sm[i].y - meanY;
-      const isPeak =
-        sm[i].y > sm[i - 1].y &&
-        sm[i].y > sm[i - 2].y &&
-        sm[i].y > sm[i + 1].y &&
-        sm[i].y > sm[i + 2].y &&
-        yNorm > 0.25 * amplitude;
+    const step = 3;
+    const uniformPts: Point[] = [];
+    let curIdx = 0;
+    for (let s = 0; s <= totalLen; s += step) {
+      while (curIdx < dists.length - 2 && dists[curIdx + 1] < s) curIdx++;
+      const segLen = dists[curIdx + 1] - dists[curIdx];
+      const t = segLen > 1e-4 ? (s - dists[curIdx]) / segLen : 0;
+      uniformPts.push({
+        x: points[curIdx].x + t * (points[curIdx + 1].x - points[curIdx].x),
+        y: points[curIdx].y + t * (points[curIdx + 1].y - points[curIdx].y),
+      });
+    }
 
-      const isTrough =
-        sm[i].y < sm[i - 1].y &&
-        sm[i].y < sm[i - 2].y &&
-        sm[i].y < sm[i + 1].y &&
-        sm[i].y < sm[i + 2].y &&
-        yNorm < -0.25 * amplitude;
+    // 3. Directional Turn Angle at Vertices (window = 3 steps = 9px)
+    const win = 3;
+    let maxTurnDeg = 0;
+    let sharpVertexCount = 0;
 
-      if (!isPeak && !isTrough) continue;
-
-      totalExtrema++;
-      const xApex = sm[i].x;
-      const yApex = sm[i].y;
-
-      let pLeft = sm[0];
-      let pRight = sm[sm.length - 1];
-
-      for (let j = i - 1; j >= 0; j--) {
-        if (Math.abs(xApex - sm[j].x) >= deltaX) {
-          pLeft = sm[j];
-          break;
-        }
-      }
-      for (let j = i + 1; j < sm.length; j++) {
-        if (Math.abs(sm[j].x - xApex) >= deltaX) {
-          pRight = sm[j];
-          break;
-        }
-      }
-
-      const dLeft = Math.abs(xApex - pLeft.x);
-      const dRight = Math.abs(pRight.x - xApex);
-
-      if (dLeft < 2 || dRight < 2) continue;
-
-      // Expected vertical drop for a pure sine calculated at the exact sampled horizontal distances
-      const expLeft = amplitude * (1 - Math.cos(frequency * dLeft));
-      const expRight = amplitude * (1 - Math.cos(frequency * dRight));
-      const expectedDrop = (expLeft + expRight) / 2;
-
-      const actualDrop = isPeak
-        ? (yApex - pLeft.y + (yApex - pRight.y)) / 2
-        : (pLeft.y - yApex + (pRight.y - yApex)) / 2;
-
-      if (expectedDrop > 1e-4) {
-        const ratio = actualDrop / expectedDrop;
-        dropRatios.push(ratio);
-        // Pure sine drop ratio is ~1.0; pure triangle drop ratio is ~2.1.
-        // If ratio > 1.45, the apex behaves as a sharp triangle corner.
-        if (ratio > 1.45) {
-          sharpExtrema++;
-        }
+    for (let i = win; i < uniformPts.length - win; i++) {
+      const v1x = uniformPts[i].x - uniformPts[i - win].x;
+      const v1y = uniformPts[i].y - uniformPts[i - win].y;
+      const v2x = uniformPts[i + win].x - uniformPts[i].x;
+      const v2y = uniformPts[i + win].y - uniformPts[i].y;
+      const l1 = Math.hypot(v1x, v1y);
+      const l2 = Math.hypot(v2x, v2y);
+      if (l1 > 1e-2 && l2 > 1e-2) {
+        const dot = (v1x * v2x + v1y * v2y) / (l1 * l2);
+        const turnDeg = (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI;
+        if (turnDeg > maxTurnDeg) maxTurnDeg = turnDeg;
+        if (turnDeg >= 135) sharpVertexCount++;
       }
     }
 
-    // 3. Horizontal slope dwell metric:
-    // Sine waves spend ~20-30% of their length with tangent close to horizontal (|slope| < 0.35 * A * omega).
-    // Triangle waves spend < 3% near horizontal because slopes are purely diagonal (+m and -m).
-    const maxSlope = amplitude * frequency;
-    let nearZeroSlopeCount = 0;
-    for (let i = 1; i < sm.length; i++) {
-      const dx = sm[i].x - sm[i - 1].x;
-      const dy = sm[i].y - sm[i - 1].y;
-      if (Math.abs(dx) > 1e-4) {
-        const slope = dy / dx;
-        if (Math.abs(slope) < 0.35 * maxSlope) {
-          nearZeroSlopeCount++;
-        }
-      }
-    }
-    const horizontalDwellRatio = nearZeroSlopeCount / Math.max(1, sm.length - 1);
+    // 4. Combined Multi-Factor Decision:
+    // A zigzag/triangle wave has:
+    // - Sharp vertex reversal: maxTurnDeg >= 135° (or multiple sharp vertices)
+    // - AND non-sinusoidal energy distribution: meanAbsRatio < 0.46 OR (fitToPeakRatio < 0.78 && meanAbsRatio < 0.48)
+    const hasSharpVertices = maxTurnDeg >= 135 || sharpVertexCount >= 2;
+    const hasTriangleEnergy = meanAbsRatio < 0.46 || (fitToPeakRatio < 0.78 && meanAbsRatio < 0.48);
 
-    const avgDropRatio =
-      dropRatios.length > 0
-        ? dropRatios.reduce((a, b) => a + b, 0) / dropRatios.length
-        : 1.0;
-
-    return (
-      (totalExtrema >= 1 && sharpExtrema / totalExtrema >= 0.5 && avgDropRatio > 1.45) ||
-      (totalExtrema >= 2 && horizontalDwellRatio < 0.05 && avgDropRatio > 1.35)
-    );
+    return hasSharpVertices && hasTriangleEnergy;
   }
 }

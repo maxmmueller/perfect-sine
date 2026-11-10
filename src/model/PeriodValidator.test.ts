@@ -213,4 +213,35 @@ describe('PeriodValidator (Boundary Value & Period Verification)', () => {
     expect(res.isValid).toBe(true);
     expect(res.fullCycles).toBeCloseTo(cycles, 1);
   });
+
+  it('should reject multi-cycle hand-drawn triangle/zigzag waves (sparse and dense)', () => {
+    // 5 cycles triangle wave with fast hand stroke (~80 points)
+    const period = 80;
+    const cycles = 5;
+    const A = 60;
+    const omega = (2 * Math.PI) / period;
+
+    for (const totalPoints of [45, 80, 200]) {
+      const points: Point[] = [];
+      for (let i = 0; i < totalPoints; i++) {
+        const x = (i / (totalPoints - 1)) * (period * cycles);
+        const phase = ((x % period) + period) % period;
+        let y: number;
+        if (phase < period / 4) {
+          y = (phase / (period / 4)) * A;
+        } else if (phase < (3 * period) / 4) {
+          y = A - ((phase - period / 4) / (period / 4)) * 2 * A;
+        } else {
+          y = -A + ((phase - (3 * period) / 4) / (period / 4)) * A;
+        }
+        // Realistic hand jitter
+        const jitter = ((i % 5) - 2) * 0.8;
+        points.push({ x: 100 + x, y: 300 + y + jitter });
+      }
+
+      const res = PeriodValidator.validate(points, omega, undefined, undefined, A * 0.81);
+      expect(res.isValid).toBe(false);
+      expect(res.message).toMatch(/Not a sine|zigzag/i);
+    }
+  });
 });
