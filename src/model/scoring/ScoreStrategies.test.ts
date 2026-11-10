@@ -8,6 +8,7 @@ import { ScoreStrategyManager } from './ScoreStrategyManager';
 import { DemoBot } from '../DemoBot';
 import { SineFitter } from '../SineFitter';
 import { FittedSine, Point } from '../types';
+import { MemoryStorageAdapter } from '../SessionHistoryService';
 
 describe('Pluggable Scoring Strategies (A/B/n Multi-Variant Testing - US07)', () => {
   const pristinePoints = DemoBot.generateStroke({
@@ -213,6 +214,66 @@ describe('Pluggable Scoring Strategies (A/B/n Multi-Variant Testing - US07)', ()
 
       const randStrategy = manager.allocateStrategy();
       expect(randStrategy).toBeDefined();
+    });
+
+    it('should support full 1-5 ranking, compute Borda count and average rank', () => {
+      const manager = new ScoreStrategyManager('rmse_l2', new MemoryStorageAdapter());
+      manager.clearVotes();
+
+      const ranking1 = ['harmonic_symmetry', 'rmse_l2', 'area_l1', 'curvature_flow', 'chebyshev_linf'];
+      manager.recordRanking(ranking1);
+
+      let summary = manager.getRankingSummary();
+      expect(summary.totalRankings).toBe(1);
+      // harmonic_symmetry at #1 => 5 pts
+      // rmse_l2 at #2 => 4 pts
+      // area_l1 at #3 => 3 pts
+      // curvature_flow at #4 => 2 pts
+      // chebyshev_linf at #5 => 1 pt
+      expect(summary.bordaScore['harmonic_symmetry']).toBe(5);
+      expect(summary.bordaScore['rmse_l2']).toBe(4);
+      expect(summary.bordaScore['chebyshev_linf']).toBe(1);
+      expect(summary.averageRank['harmonic_symmetry']).toBe(1.0);
+      expect(summary.averageRank['rmse_l2']).toBe(2.0);
+      expect(summary.leadingStrategyId).toBe('harmonic_symmetry');
+
+      // Second submission: rmse_l2 at #1, harmonic_symmetry at #2
+      const ranking2 = ['rmse_l2', 'harmonic_symmetry', 'area_l1', 'curvature_flow', 'chebyshev_linf'];
+      manager.recordRanking(ranking2);
+
+      summary = manager.getRankingSummary();
+      expect(summary.totalRankings).toBe(2);
+      expect(summary.bordaScore['harmonic_symmetry']).toBe(9); // 5 + 4
+      expect(summary.bordaScore['rmse_l2']).toBe(9); // 4 + 5
+      expect(summary.averageRank['harmonic_symmetry']).toBe(1.5);
+      expect(summary.averageRank['rmse_l2']).toBe(1.5);
+    });
+
+    it('should allow reordering user ranking order via moveStrategyRank and setUserRankingOrder', () => {
+      const manager = new ScoreStrategyManager();
+      const initial = [...manager.getUserRankingOrder()];
+      expect(initial[0]).toBe('rmse_l2');
+      expect(initial[1]).toBe('area_l1');
+
+      // Move index 0 to index 2
+      const updated = manager.moveStrategyRank(0, 2);
+      expect(updated[0]).toBe('area_l1');
+      expect(updated[2]).toBe('rmse_l2');
+
+      // Invalid moves return unchanged
+      expect(manager.moveStrategyRank(-1, 2)).toEqual(updated);
+      expect(manager.moveStrategyRank(0, 99)).toEqual(updated);
+      expect(manager.moveStrategyRank(1, 1)).toEqual(updated);
+
+      // Set user ranking order explicitly
+      manager.setUserRankingOrder(['chebyshev_linf', 'curvature_flow', 'harmonic_symmetry', 'area_l1', 'rmse_l2']);
+      expect(manager.getUserRankingOrder()[0]).toBe('chebyshev_linf');
+    });
+
+    it('should throw error when ranking with invalid or empty strategies', () => {
+      const manager = new ScoreStrategyManager();
+      expect(() => manager.recordRanking([])).toThrow();
+      expect(() => manager.recordRanking(['invalid_strat_id'])).toThrow();
     });
   });
 });

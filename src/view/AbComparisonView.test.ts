@@ -12,6 +12,7 @@ interface MockDOMElement {
   innerHTML: string;
   attributes: Record<string, string>;
   children: MockDOMElement[];
+  draggable: boolean;
   classList: {
     classes: Set<string>;
     add: (cls: string) => void;
@@ -39,6 +40,7 @@ const createMockDOMElement = (id: string = '', initialClasses: string[] = []): M
     innerHTML: '',
     attributes,
     children,
+    draggable: false,
     classList: {
       classes,
       add: (cls: string) => classes.add(cls),
@@ -66,7 +68,7 @@ const createMockDOMElement = (id: string = '', initialClasses: string[] = []): M
   return el;
 };
 
-describe('AbComparisonView (A/B Scorer List & Voting - Task 7.8)', () => {
+describe('AbComparisonView (Drag & Drop Ranking & Focused Metrics - Task 7.8)', () => {
   let strategyManager: ScoreStrategyManager;
   let elementMap: Map<string, MockDOMElement>;
   let abView: AbComparisonView;
@@ -80,6 +82,7 @@ describe('AbComparisonView (A/B Scorer List & Voting - Task 7.8)', () => {
       'ab-scorer-list',
       'ab-toggle-btn',
       'ab-close-btn',
+      'ab-save-ranking-btn',
       'ab-clear-votes-btn',
       'ab-total-votes',
       'ab-leading-name',
@@ -110,9 +113,9 @@ describe('AbComparisonView (A/B Scorer List & Voting - Task 7.8)', () => {
     selectedStrategyId = null;
   });
 
-  it('should initialize closed with 0 votes and default leading badge', () => {
+  it('should initialize closed with 0 rankings and default leading badge', () => {
     expect(abView.isOpen()).toBe(false);
-    expect(elementMap.get('ab-total-votes')!.textContent).toBe('0 votes');
+    expect(elementMap.get('ab-total-votes')!.textContent).toBe('0 rankings');
     expect(elementMap.get('ab-leading-name')!.textContent).toContain('None yet');
   });
 
@@ -132,7 +135,7 @@ describe('AbComparisonView (A/B Scorer List & Voting - Task 7.8)', () => {
     expect(abView.isOpen()).toBe(false);
   });
 
-  it('should render all 5 scoring strategies when showEvaluations is called', () => {
+  it('should render all 5 scoring strategies with prominent score and accuracy chips', () => {
     const points = DemoBot.generateStroke({
       amplitude: 50,
       wavelength: 200,
@@ -148,51 +151,108 @@ describe('AbComparisonView (A/B Scorer List & Voting - Task 7.8)', () => {
     expect(abView.isOpen()).toBe(true);
     const list = elementMap.get('ab-scorer-list')!;
     expect(list.children).toHaveLength(5);
+
+    // Each row must be draggable and contain focused metrics chips
+    list.children.forEach((row) => {
+      expect(row.draggable).toBe(true);
+      expect(row.innerHTML).toContain('ab-metric-chip ab-metric-score');
+      expect(row.innerHTML).toContain('ab-metric-chip ab-metric-accuracy');
+      expect(row.innerHTML).toContain('SCORE');
+      expect(row.innerHTML).toContain('ACCURACY');
+    });
   });
 
-  it('should record vote, notify callback, and update vote summary when row is clicked', () => {
+  it('should reorder ranks using ▲ / ▼ quick buttons and update ranking order', () => {
+    abView.renderList();
+    const list = elementMap.get('ab-scorer-list')!;
+
+    // Initial order: index 0 is rmse_l2, index 1 is area_l1
+    expect(strategyManager.getUserRankingOrder()[0]).toBe('rmse_l2');
+    expect(strategyManager.getUserRankingOrder()[1]).toBe('area_l1');
+
+    // Click down button on first row
+    const firstRow = list.children[0];
+    const downBtn = createMockDOMElement('down-btn', ['ab-rank-btn', 'ab-rank-down']);
+    firstRow.click({ target: downBtn, stopPropagation: vi.fn() });
+
+    // Order should now have area_l1 at #1 and rmse_l2 at #2
+    expect(strategyManager.getUserRankingOrder()[0]).toBe('area_l1');
+    expect(strategyManager.getUserRankingOrder()[1]).toBe('rmse_l2');
+
+    // Click up button on new second row (rmse_l2)
+    const updatedList = elementMap.get('ab-scorer-list')!;
+    const secondRow = updatedList.children[1];
+    const upBtn = createMockDOMElement('up-btn', ['ab-rank-btn', 'ab-rank-up']);
+    secondRow.click({ target: upBtn, stopPropagation: vi.fn() });
+
+    // Order restored
+    expect(strategyManager.getUserRankingOrder()[0]).toBe('rmse_l2');
+  });
+
+  it('should save ranking via Save Ranking button and update Borda summary', () => {
     const points = DemoBot.generateStroke({ amplitude: 50, wavelength: 200, cycles: 1.5 });
     const fit = SineFitter.fit(points)!;
-    const evaluations = strategyManager.evaluateAll(points, fit);
+    abView.showEvaluations(strategyManager.evaluateAll(points, fit));
 
-    abView.showEvaluations(evaluations);
-    const list = elementMap.get('ab-scorer-list')!;
-    const firstRow = list.children[0];
+    const saveBtn = elementMap.get('ab-save-ranking-btn')!;
+    saveBtn.click();
 
-    // Click on vote button within the row
-    const voteBtn = createMockDOMElement('vote-btn', ['ab-vote-btn']);
-    firstRow.click({ target: voteBtn, stopPropagation: vi.fn() });
-
-    const summary = strategyManager.getVoteSummary();
-    expect(summary.totalVotes).toBe(1);
+    const summary = strategyManager.getRankingSummary();
+    expect(summary.totalRankings).toBe(1);
     expect(summary.leadingStrategyId).toBe('rmse_l2');
-    expect(elementMap.get('ab-total-votes')!.textContent).toBe('1 votes');
+    expect(summary.bordaScore['rmse_l2']).toBe(5);
+    expect(elementMap.get('ab-total-votes')!.textContent).toBe('1 rankings');
     expect(elementMap.get('ab-leading-name')!.textContent).toContain('RMSE / L2 Quadratic Distance');
-    expect(selectedStrategyId).toBe('rmse_l2');
+    expect(saveBtn.textContent).toContain('Ranking Saved');
   });
 
-  it('should select strategy and update active canvas without voting when clicking row body', () => {
+  it('should select strategy and update active canvas without ranking when clicking row body', () => {
     abView.renderList();
     const list = elementMap.get('ab-scorer-list')!;
     const secondRow = list.children[1]; // Area L1
 
     secondRow.click({ target: secondRow, stopPropagation: vi.fn() });
 
-    expect(strategyManager.getVoteSummary().totalVotes).toBe(0); // no vote cast
+    expect(strategyManager.getRankingSummary().totalRankings).toBe(0);
     expect(selectedStrategyId).toBe('area_l1');
     expect(strategyManager.getActiveStrategy().id).toBe('area_l1');
   });
 
-  it('should clear all votes when clear votes button is clicked', () => {
-    strategyManager.recordVote('rmse_l2');
-    strategyManager.recordVote('area_l1');
-    expect(strategyManager.getVoteSummary().totalVotes).toBe(2);
+  it('should support HTML5 drag and drop rank swap', () => {
+    abView.renderList();
+    const list = elementMap.get('ab-scorer-list')!;
+
+    const firstRow = list.children[0];
+    const thirdRow = list.children[2];
+
+    // Trigger dragstart on first row
+    const mockDataTransfer = {
+      effectAllowed: '',
+      dropEffect: '',
+      setData: vi.fn(),
+      getData: vi.fn(() => '0'),
+    };
+
+    const dragStartHandlers = firstRow.listeners['dragstart'] || [];
+    dragStartHandlers.forEach((h) => h({ dataTransfer: mockDataTransfer }));
+
+    // Trigger drop on third row
+    const dropHandlers = thirdRow.listeners['drop'] || [];
+    dropHandlers.forEach((h) => h({ preventDefault: vi.fn(), dataTransfer: mockDataTransfer }));
+
+    // Item 0 (rmse_l2) should now be moved to index 2
+    expect(strategyManager.getUserRankingOrder()[2]).toBe('rmse_l2');
+  });
+
+  it('should clear all rankings when reset button is clicked', () => {
+    strategyManager.recordRanking(['rmse_l2', 'area_l1', 'harmonic_symmetry', 'curvature_flow', 'chebyshev_linf']);
+    expect(strategyManager.getRankingSummary().totalRankings).toBe(1);
 
     const clearBtn = elementMap.get('ab-clear-votes-btn')!;
     clearBtn.click();
 
-    expect(strategyManager.getVoteSummary().totalVotes).toBe(0);
-    expect(elementMap.get('ab-total-votes')!.textContent).toBe('0 votes');
+    expect(strategyManager.getRankingSummary().totalRankings).toBe(0);
+    expect(elementMap.get('ab-total-votes')!.textContent).toBe('0 rankings');
     expect(elementMap.get('ab-leading-name')!.textContent).toContain('None yet');
   });
 });

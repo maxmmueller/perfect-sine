@@ -360,15 +360,15 @@ html, body {
   position: absolute;
   top: 4.5rem;
   right: 1.5rem;
-  width: 380px;
-  max-width: calc(100vw - 3rem);
+  width: 440px;
+  max-width: calc(100vw - 2rem);
   max-height: calc(100vh - 6rem);
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 16px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(56, 189, 248, 0.15);
+  border-radius: 18px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 24px rgba(56, 189, 248, 0.15);
   display: flex;
   flex-direction: column;
   z-index: 40;
@@ -453,8 +453,8 @@ html, body {
 .ab-scorer-list {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.85rem 1.25rem;
+  gap: 0.65rem;
+  padding: 0.85rem 1.15rem;
   overflow-y: auto;
   max-height: calc(100vh - 16rem);
 }
@@ -462,19 +462,38 @@ html, body {
 .ab-scorer-row {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.4rem;
   background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
-  padding: 0.75rem;
-  cursor: pointer;
+  padding: 0.65rem 0.8rem;
+  cursor: grab;
+  user-select: none;
   transition: all 0.18s ease;
+  position: relative;
+}
+
+.ab-scorer-row:active {
+  cursor: grabbing;
 }
 
 .ab-scorer-row:hover {
   background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.18);
   transform: translateY(-1px);
+}
+
+.ab-scorer-row.dragging {
+  opacity: 0.45;
+  transform: scale(0.98);
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.ab-scorer-row.drag-over {
+  border-color: #00ff88;
+  box-shadow: 0 0 16px rgba(0, 255, 136, 0.3), inset 0 0 8px rgba(0, 255, 136, 0.15);
+  transform: translateY(2px);
 }
 
 .ab-scorer-row.active-strategy {
@@ -483,22 +502,72 @@ html, body {
   box-shadow: inset 0 0 12px rgba(0, 240, 255, 0.08);
 }
 
-.ab-scorer-row.voted-best {
-  border-color: rgba(0, 255, 136, 0.55);
-  background: rgba(0, 255, 136, 0.05);
-  box-shadow: 0 0 16px rgba(0, 255, 136, 0.15);
+.ab-scorer-row.rank-1 {
+  border-color: rgba(250, 204, 21, 0.35);
+  background: rgba(250, 204, 21, 0.04);
 }
 
-.ab-row-top {
+.ab-row-main {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.65rem;
+}
+
+.ab-rank-col {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.ab-drag-handle {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  cursor: grab;
+  line-height: 1;
+  padding: 0 0.1rem;
+  opacity: 0.6;
+}
+
+.ab-drag-handle:hover {
+  color: #38bdf8;
+  opacity: 1;
+}
+
+.ab-rank-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.rank-badge-1 {
+  border-color: rgba(250, 204, 21, 0.6);
+  background: rgba(250, 204, 21, 0.18);
+  color: #facc15;
+  box-shadow: 0 0 8px rgba(250, 204, 21, 0.2);
+}
+
+.rank-badge-2 {
+  border-color: rgba(226, 232, 240, 0.5);
+  background: rgba(226, 232, 240, 0.15);
+  color: #f1f5f9;
+}
+
+.rank-badge-3 {
+  border-color: rgba(251, 146, 60, 0.5);
+  background: rgba(251, 146, 60, 0.15);
+  color: #fb923c;
 }
 
 .ab-badge {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 800;
-  padding: 0.2rem 0.5rem;
+  padding: 0.18rem 0.45rem;
   border-radius: 6px;
   background: rgba(56, 189, 248, 0.15);
   color: #38bdf8;
@@ -506,7 +575,7 @@ html, body {
   flex-shrink: 0;
 }
 
-.ab-info {
+.ab-info-col {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -516,11 +585,11 @@ html, body {
 .ab-name-line {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
 }
 
 .ab-name {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 700;
   color: var(--text-main);
   white-space: nowrap;
@@ -529,96 +598,163 @@ html, body {
 }
 
 .ab-leading-pill {
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   background: rgba(234, 179, 8, 0.18);
   color: #facc15;
   border: 1px solid rgba(234, 179, 8, 0.35);
   border-radius: 9999px;
-  padding: 0.1rem 0.4rem;
+  padding: 0.08rem 0.35rem;
   font-weight: 700;
 }
 
 .ab-desc {
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.ab-scores {
+/* ==========================================================================
+   Focused High-Visibility Metrics Block (Score & Accuracy)
+   ========================================================================== */
+
+.ab-metrics-focus {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
+  gap: 0.45rem;
   flex-shrink: 0;
 }
 
-.ab-score-val {
-  font-size: 0.85rem;
+.ab-metric-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-width: 62px;
+}
+
+.ab-metric-lbl {
+  font-size: 0.55rem;
   font-weight: 800;
-  color: var(--color-green);
-}
-
-.ab-accuracy-val {
-  font-size: 0.7rem;
+  letter-spacing: 0.08em;
   color: var(--text-muted);
+  line-height: 1;
+  margin-bottom: 0.15rem;
 }
 
-.ab-vote-bar-wrap {
-  width: 100%;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 9999px;
-  overflow: hidden;
+.ab-metric-score {
+  border-color: rgba(0, 255, 136, 0.35);
+  background: rgba(0, 255, 136, 0.08);
 }
 
-.ab-vote-bar {
-  height: 100%;
-  background: linear-gradient(90deg, #38bdf8, #00ff88);
-  border-radius: 9999px;
-  transition: width 0.3s ease;
+.ab-metric-score .ab-metric-num {
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #00ff88;
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+  line-height: 1.1;
 }
 
-.ab-row-actions {
+.ab-metric-accuracy {
+  border-color: rgba(0, 240, 255, 0.35);
+  background: rgba(0, 240, 255, 0.08);
+}
+
+.ab-metric-accuracy .ab-metric-num {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #00f0ff;
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  line-height: 1.1;
+}
+
+.ab-reorder-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
+.ab-rank-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.ab-rank-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: #38bdf8;
+  color: #fff;
+}
+
+.ab-rank-btn:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
+
+.ab-row-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 0.15rem;
-}
-
-.ab-vote-stats {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  padding-top: 0.25rem;
 }
 
-.ab-vote-btn {
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  color: #38bdf8;
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 0.25rem 0.65rem;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
+.ab-rank-stats {
+  font-weight: 600;
+  color: #94a3b8;
 }
 
-.ab-vote-btn:hover {
-  background: rgba(56, 189, 248, 0.25);
-  border-color: #38bdf8;
-}
-
-.ab-vote-btn.voted {
-  background: rgba(0, 255, 136, 0.2);
-  border-color: rgba(0, 255, 136, 0.5);
-  color: var(--color-green);
+.ab-rank-hint {
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.35);
 }
 
 .ab-drawer-footer {
-  padding: 0.75rem 1.25rem;
+  padding: 0.75rem 1.15rem;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#ab-save-ranking-btn {
+  flex: 1;
+  background: linear-gradient(135deg, #00f0ff, #00ff88);
+  color: #050b14;
+  font-weight: 800;
+  font-size: 0.78rem;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 240, 255, 0.25);
+}
+
+#ab-save-ranking-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 255, 136, 0.35);
+}
+
+#ab-save-ranking-btn.saved {
+  background: #00ff88;
+  color: #050b14;
+  box-shadow: 0 0 16px rgba(0, 255, 136, 0.5);
 }
 
 @media (max-width: 640px) {
