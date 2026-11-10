@@ -623,5 +623,44 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       controller.stopDemo();
       vi.unstubAllGlobals();
     });
+
+    it('should notify onStrokeComplete and store lastDrawnStroke upon stroke finish', () => {
+      let completedStrokeData: unknown = null;
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
+        onStrokeComplete: (data) => {
+          completedStrokeData = data;
+        },
+      });
+
+      // Draw a short wave
+      controller.handlePointerDown(createPointerEvent('pointerdown', 50, 100));
+      controller.handlePointerMove(createPointerEvent('pointermove', 80, 150));
+      controller.handlePointerUp(createPointerEvent('pointerup', 100, 100));
+
+      expect(completedStrokeData).not.toBeNull();
+      expect(controller.getLastDrawnStroke()).toEqual(completedStrokeData);
+      expect((completedStrokeData as { points: unknown[] }).points.length).toBeGreaterThan(0);
+    });
+
+    it('should support synchronous and animated replayStroke of recorded points', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      const points = [
+        { x: 100, y: 300, time: 0 },
+        { x: 150, y: 220, time: 50 },
+        { x: 200, y: 300, time: 100 },
+        { x: 250, y: 380, time: 150 },
+        { x: 300, y: 300, time: 200 },
+        { x: 350, y: 220, time: 250 },
+        { x: 400, y: 300, time: 300 },
+        { x: 450, y: 380, time: 350 },
+        { x: 500, y: 300, time: 400 },
+      ];
+
+      // Synchronous replay (animated: false)
+      controller.replayStroke(points, false);
+      expect(stateMachine.getState()).toBe('LOCKED');
+      expect(strokeBuffer.getLength()).toBe(points.length);
+      expect(controller.getLastDrawnStroke()).not.toBeNull();
+    });
   });
 });

@@ -58,5 +58,24 @@ export interface StrokeEvaluation {
 
 export type GameState = 'IDLE' | 'DRAWING' | 'EVALUATING' | 'LOCKED';
 
+export interface RecordedCurve {
+  readonly id: string;
+  readonly timestamp: number;
+  label: string;
+  readonly points: readonly Point[];
+  readonly validationMessage?: string | null;
+  readonly evaluation?: StrokeEvaluation | null;
+  readonly metrics?: {
+    readonly score: number;
+    readonly accuracy: number;
+    readonly fullCycles: number;
+    readonly amplitude: number;
+    readonly wavelength: number;
+    readonly r2: number;
+    readonly tiltAngle: number;
+  } | null;
+  thumbnailDataUrl?: string;
+}
+
 export type StateChangeListener = (newState: GameState, oldState: GameState) => void;
 export type StrokeChangeListener = (points: readonly Point[]) => void;
