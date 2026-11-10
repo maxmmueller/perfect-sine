@@ -273,7 +273,6 @@ export class CanvasView {
     }
 
     const scoreMatch = title.match(/^(?:Score|Demo):\s*(.+)$/i);
-    const accMatch = subtitle ? subtitle.match(/^(?:(?:Bot\s+)?Accuracy:\s*(\d+%))(?:\s*\|\s*(.*))?$/i) : null;
 
     if (scoreMatch) {
       const scoreText = scoreMatch[1];
@@ -295,23 +294,16 @@ export class CanvasView {
       const displayScore = title.startsWith('Demo') ? `Demo: ${scoreText}` : `Score: ${scoreText}`;
       this.ctx.fillText(displayScore, cx, isMobile ? 54 : 66);
 
-      if (accMatch) {
+      if (subtitle) {
+        // Only show Accuracy; completely omit cycles, R^2, and retry hints
+        let accuracyText = subtitle.split('|')[0].trim();
+        if (!accuracyText.toLowerCase().startsWith('accuracy') && !accuracyText.toLowerCase().startsWith('bot accuracy')) {
+          accuracyText = `Accuracy: ${accuracyText}`;
+        }
         const accFontSize = isMobile ? 18 : 22;
         this.ctx.font = `600 ${accFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
         this.ctx.fillStyle = '#f1f5f9';
-        this.ctx.fillText(`Accuracy: ${accMatch[1]}`, cx, isMobile ? 82 : 98);
-
-        const remainder = accMatch[2];
-        if (remainder) {
-          const formattedDetails = remainder.replace(/\s*\|\s*/g, '  ·  ');
-          this.ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-          this.ctx.fillStyle = '#64748b';
-          this.ctx.fillText(formattedDetails, cx, isMobile ? 104 : 122);
-        }
-      } else if (subtitle) {
-        this.ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        this.ctx.fillStyle = '#94a3b8';
-        this.ctx.fillText(subtitle, cx, isMobile ? 80 : 94);
+        this.ctx.fillText(accuracyText, cx, isMobile ? 82 : 98);
       }
     } else {
       this.ctx.textAlign = 'center';
