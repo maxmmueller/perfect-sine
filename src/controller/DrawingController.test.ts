@@ -92,8 +92,8 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     expect(stateMachine.getState()).toBe('LOCKED');
     expect(controller.getLastEvaluation()).toBeNull();
     expect(mockView.renderBanner).toHaveBeenCalledWith(
-      'Incomplete Wave',
-      expect.stringContaining('Stroke too short'),
+      'Incomplete Sine Wave',
+      undefined,
       true
     );
   });
@@ -114,8 +114,8 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     expect(stateMachine.getState()).toBe('LOCKED');
     expect(controller.getLastEvaluation()).toBeNull();
     expect(mockView.renderBanner).toHaveBeenCalledWith(
-      'Amplitude Too Flat',
-      expect.stringContaining('Wave amplitude is too small'),
+      'Sine Wave Too Flat',
+      undefined,
       true
     );
   });
