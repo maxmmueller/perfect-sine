@@ -43,22 +43,24 @@ export class CanvasView {
   }
 
   public drawBackgroundGrid(): void {
-    const gridSize = 40;
+    const gridSize = 36;
     this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    this.ctx.strokeStyle = 'rgba(148, 163, 184, 0.08)';
     this.ctx.lineWidth = 1;
 
-    for (let x = 0; x < this.width; x += gridSize) {
+    for (let x = 0; x <= this.width; x += gridSize) {
+      const px = Math.floor(x) + 0.5;
       this.ctx.beginPath();
-      this.ctx.moveTo(x, 0);
-      this.ctx.lineTo(x, this.height);
+      this.ctx.moveTo(px, 0);
+      this.ctx.lineTo(px, this.height);
       this.ctx.stroke();
     }
 
-    for (let y = 0; y < this.height; y += gridSize) {
+    for (let y = 0; y <= this.height; y += gridSize) {
+      const py = Math.floor(y) + 0.5;
       this.ctx.beginPath();
-      this.ctx.moveTo(0, y);
-      this.ctx.lineTo(this.width, y);
+      this.ctx.moveTo(0, py);
+      this.ctx.lineTo(this.width, py);
       this.ctx.stroke();
     }
 
@@ -66,11 +68,11 @@ export class CanvasView {
   }
 
   /**
-   * Renders the real-time active user stroke in cyan neon.
+   * Renders the real-time active user stroke in clean notebook ink style (no glow).
    */
   public renderStroke(
     points: readonly Point[],
-    strokeColor: string = '#00f2fe',
+    strokeColor: string = '#38bdf8',
     lineWidth: number = 3.5
   ): void {
     if (points.length < 2) return;
@@ -80,8 +82,7 @@ export class CanvasView {
     this.ctx.lineWidth = lineWidth;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
-    this.ctx.shadowColor = strokeColor;
-    this.ctx.shadowBlur = 8;
+    this.ctx.shadowBlur = 0;
 
     this.ctx.beginPath();
     this.ctx.moveTo(points[0].x, points[0].y);
@@ -101,10 +102,11 @@ export class CanvasView {
   /**
    * Renders the evaluated stroke where segments dynamically transition color
    * based on orthogonal distance deviation (120° Green -> 60° Yellow -> 0° Red).
+   * Clean ink transitions without blurry glow.
    */
   public renderEvaluatedStroke(
     deviations: readonly PointDeviation[],
-    lineWidth: number = 4
+    lineWidth: number = 3.5
   ): void {
     if (deviations.length < 2) return;
 
@@ -112,6 +114,7 @@ export class CanvasView {
     this.ctx.lineWidth = lineWidth;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
+    this.ctx.shadowBlur = 0;
 
     for (let i = 0; i < deviations.length - 1; i++) {
       const d1 = deviations[i];
@@ -122,8 +125,6 @@ export class CanvasView {
       grad.addColorStop(1, d2.color);
 
       this.ctx.strokeStyle = grad;
-      this.ctx.shadowColor = d2.color;
-      this.ctx.shadowBlur = 6;
 
       this.ctx.beginPath();
       this.ctx.moveTo(d1.point.x, d1.point.y);
@@ -135,12 +136,12 @@ export class CanvasView {
   }
 
   /**
-   * Renders the fitted ideal reference sine curve as a dashed red approximation guideline.
+   * Renders the fitted ideal reference sine curve as a dashed red teacher's pen guideline.
    */
   public renderFittedSineGuideline(
     curvePoints: readonly Point[],
-    strokeColor: string = 'rgba(255, 51, 68, 0.85)',
-    lineWidth: number = 2.5
+    strokeColor: string = 'rgba(239, 68, 68, 0.9)',
+    lineWidth: number = 2
   ): void {
     if (curvePoints.length < 2) return;
 
@@ -149,9 +150,8 @@ export class CanvasView {
     this.ctx.lineWidth = lineWidth;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
-    this.ctx.shadowColor = strokeColor;
-    this.ctx.shadowBlur = 8;
-    this.ctx.setLineDash([5, 5]);
+    this.ctx.shadowBlur = 0;
+    this.ctx.setLineDash([6, 6]);
 
     this.ctx.beginPath();
     this.ctx.moveTo(curvePoints[0].x, curvePoints[0].y);
@@ -208,47 +208,44 @@ export class CanvasView {
     hitRadius: number = 24
   ): void {
     this.ctx.save();
+    this.ctx.shadowBlur = 0;
 
     // 1. Outer pulsing halo ring
     const outerRadius = hitRadius + 4 + pulseFactor * 8;
-    const outerAlpha = 0.4 * (1 - pulseFactor * 0.5);
+    const outerAlpha = 0.3 * (1 - pulseFactor * 0.5);
     this.ctx.beginPath();
     this.ctx.arc(origin.x, origin.y, outerRadius, 0, Math.PI * 2);
-    this.ctx.strokeStyle = `rgba(0, 240, 255, ${outerAlpha})`;
-    this.ctx.lineWidth = 2;
+    this.ctx.strokeStyle = `rgba(56, 189, 248, ${outerAlpha})`;
+    this.ctx.lineWidth = 1.5;
     this.ctx.stroke();
 
     // 2. Interactive hitbox ring (>= 44x44px clickable target)
     this.ctx.beginPath();
     this.ctx.arc(origin.x, origin.y, hitRadius, 0, Math.PI * 2);
-    this.ctx.fillStyle = 'rgba(0, 240, 255, 0.12)';
+    this.ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
     this.ctx.fill();
-    this.ctx.strokeStyle = '#00f0ff';
-    this.ctx.lineWidth = 2;
-    this.ctx.shadowColor = '#00f0ff';
-    this.ctx.shadowBlur = 10;
+    this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    this.ctx.lineWidth = 1.5;
     this.ctx.stroke();
 
     // 3. Central target bullseye
     this.ctx.beginPath();
     this.ctx.arc(origin.x, origin.y, 4, 0, Math.PI * 2);
     this.ctx.fillStyle = '#ffffff';
-    this.ctx.shadowColor = '#ffffff';
-    this.ctx.shadowBlur = 6;
     this.ctx.fill();
 
     // 4. "RESET" micro-label badge
     this.ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.ctx.textAlign = 'center';
-    this.ctx.fillStyle = '#00f0ff';
-    this.ctx.shadowBlur = 0;
+    this.ctx.fillStyle = '#94a3b8';
     this.ctx.fillText('RESET', origin.x, origin.y + hitRadius + 15);
 
     this.ctx.restore();
   }
 
   /**
-   * Renders a transient notification or score banner directly on canvas.
+   * Renders a transient notification or prominent score & accuracy banner directly on canvas.
+   * School notebook style: crisp typography, large score, smaller accuracy, zero glow.
    */
   public renderBanner(
     title: string,
@@ -256,21 +253,77 @@ export class CanvasView {
     isError: boolean = false
   ): void {
     this.ctx.save();
+    this.ctx.shadowBlur = 0;
     const cx = this.width / 2;
-    const cy = 60;
+    const isMobile = this.width < 480;
 
-    this.ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillStyle = isError ? '#ff3366' : '#00ff88';
-    this.ctx.shadowColor = isError ? '#ff3366' : '#00ff88';
-    this.ctx.shadowBlur = 12;
-    this.ctx.fillText(title, cx, cy);
+    if (isError) {
+      this.ctx.textAlign = 'center';
+      this.ctx.font = '700 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      this.ctx.fillStyle = '#ef4444';
+      this.ctx.fillText(title, cx, isMobile ? 52 : 62);
 
-    if (subtitle) {
-      this.ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-      this.ctx.fillStyle = '#94a3b8';
-      this.ctx.shadowBlur = 0;
-      this.ctx.fillText(subtitle, cx, cy + 24);
+      if (subtitle) {
+        this.ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        this.ctx.fillStyle = '#94a3b8';
+        this.ctx.fillText(subtitle, cx, isMobile ? 78 : 90);
+      }
+      this.ctx.restore();
+      return;
+    }
+
+    const scoreMatch = title.match(/^(?:Score|Demo):\s*(.+)$/i);
+    const accMatch = subtitle ? subtitle.match(/^(?:(?:Bot\s+)?Accuracy:\s*(\d+%))(?:\s*\|\s*(.*))?$/i) : null;
+
+    if (scoreMatch) {
+      const scoreText = scoreMatch[1];
+      this.ctx.textAlign = 'center';
+
+      const numericVal = parseInt(scoreText.replace(/\D/g, ''), 10);
+      let scoreColor = '#22c55e';
+      if (!isNaN(numericVal)) {
+        if (numericVal < 400) {
+          scoreColor = '#ef4444';
+        } else if (numericVal < 700) {
+          scoreColor = '#f59e0b';
+        }
+      }
+
+      const scoreFontSize = isMobile ? 38 : 50;
+      this.ctx.font = `800 ${scoreFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      this.ctx.fillStyle = scoreColor;
+      const displayScore = title.startsWith('Demo') ? `Demo: ${scoreText}` : `Score: ${scoreText}`;
+      this.ctx.fillText(displayScore, cx, isMobile ? 54 : 66);
+
+      if (accMatch) {
+        const accFontSize = isMobile ? 18 : 22;
+        this.ctx.font = `600 ${accFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        this.ctx.fillStyle = '#f1f5f9';
+        this.ctx.fillText(`Accuracy: ${accMatch[1]}`, cx, isMobile ? 82 : 98);
+
+        const remainder = accMatch[2];
+        if (remainder) {
+          const formattedDetails = remainder.replace(/\s*\|\s*/g, '  ·  ');
+          this.ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+          this.ctx.fillStyle = '#64748b';
+          this.ctx.fillText(formattedDetails, cx, isMobile ? 104 : 122);
+        }
+      } else if (subtitle) {
+        this.ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        this.ctx.fillStyle = '#94a3b8';
+        this.ctx.fillText(subtitle, cx, isMobile ? 80 : 94);
+      }
+    } else {
+      this.ctx.textAlign = 'center';
+      this.ctx.font = '700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      this.ctx.fillStyle = '#38bdf8';
+      this.ctx.fillText(title, cx, isMobile ? 52 : 62);
+
+      if (subtitle) {
+        this.ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        this.ctx.fillStyle = '#94a3b8';
+        this.ctx.fillText(subtitle, cx, isMobile ? 78 : 90);
+      }
     }
 
     this.ctx.restore();
