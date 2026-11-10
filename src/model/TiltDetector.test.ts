@@ -125,4 +125,40 @@ describe('TiltDetector (PCA & Linear Tilt Detection)', () => {
     expect(Math.abs(res.centroid.y - 100)).toBeLessThan(1.5);
     expect(Math.sin(res.angle)).toBeCloseTo(0, 1);
   });
+
+  it('should snap near-horizontal wave with start-trough/end-peak asymmetry (chord ~15 deg) to 0 rad', () => {
+    // 1.5 cycles starting at trough (-PI/2) and ending at peak (+PI)
+    // Chord angle is ~15°, but PCA mass axis is ~2.7° (< 10° snap threshold)
+    const points: Point[] = [];
+    const L = 300;
+    const A = 40;
+    for (let i = 0; i <= 60; i++) {
+      const u = (i / 60) * L;
+      const v = A * Math.sin(-Math.PI / 2 + (u / L) * 3 * Math.PI);
+      points.push({ x: 100 + u, y: 200 + v });
+    }
+
+    const res = TiltDetector.detectTilt(points);
+    expect(res.angle).toBe(0); // Successfully snapped to horizontal
+  });
+
+  it('should preserve tilt for an intentionally slanted wave at 21 degrees (not snap to 0)', () => {
+    const alpha = (21 * Math.PI) / 180;
+    const cos = Math.cos(alpha);
+    const sin = Math.sin(alpha);
+    const points: Point[] = [];
+    const L = 600;
+    const A = 50;
+
+    for (let u = 0; u <= L; u += 5) {
+      const v = A * Math.sin((u / L) * 6 * Math.PI);
+      const x = 50 + u * cos - v * sin;
+      const y = 50 + u * sin + v * cos;
+      points.push({ x, y });
+    }
+
+    const res = TiltDetector.detectTilt(points);
+    expect(res.angle).not.toBe(0);
+    expect(res.angle).toBeCloseTo(alpha, 1);
+  });
 });
