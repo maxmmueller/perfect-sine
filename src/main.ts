@@ -46,7 +46,10 @@ function initializeApp(): void {
     hudView,
   };
 
-  // Optional: Idle Demo loop trigger (US05)
+  // Start demo mode immediately on launch (user requirement)
+  controller.startDemo();
+
+  // Idle timer: restart demo after 15s of user inactivity on empty canvas
   let idleTimeout: ReturnType<typeof setTimeout> | null = null;
   const resetIdleTimer = () => {
     if (idleTimeout) clearTimeout(idleTimeout);
@@ -57,15 +60,9 @@ function initializeApp(): void {
     }, 15000);
   };
 
-  const cancelIdleTimer = () => {
-    if (idleTimeout) {
-      clearTimeout(idleTimeout);
-      idleTimeout = null;
-    }
-  };
-
-  window.addEventListener('pointerdown', cancelIdleTimer, { once: true });
-  resetIdleTimer();
+  window.addEventListener('pointerdown', () => {
+    resetIdleTimer();
+  });
 }
 
 window.addEventListener('DOMContentLoaded', initializeApp);
