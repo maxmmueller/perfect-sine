@@ -5,6 +5,7 @@ import { DrawingController } from './controller/DrawingController';
 import { SessionHistoryService } from './model/SessionHistoryService';
 import { HudView } from './view/HudView';
 import { ScoreStrategyManager } from './model/scoring/ScoreStrategyManager';
+import { AbComparisonView } from './view/AbComparisonView';
 
 function getStrategyBadge(id: string): string {
   switch (id) {
@@ -13,6 +14,7 @@ function getStrategyBadge(id: string): string {
     case 'area_l1':
       return 'L1';
     case 'harmonic_sym':
+    case 'harmonic_symmetry':
       return 'SYM';
     case 'curvature_flow':
       return 'FLOW';
@@ -40,8 +42,38 @@ function initializeApp(): void {
   const strokeBuffer = new StrokeBuffer(2.0);
   const view = new CanvasView(canvas);
 
-  const controller = new DrawingController(canvas, view, stateMachine, strokeBuffer, {
+  // Wire Strategy Switcher Pill UI updater
+  const strategyPill = document.getElementById('strategy-pill');
+  const strategyLabel = document.getElementById('hud-strategy-name');
+
+  let controller: DrawingController;
+
+  const updateStrategyUI = () => {
+    const current = controller?.getScoreStrategy() ?? activeStrategy;
+    if (strategyLabel) {
+      strategyLabel.textContent = getStrategyBadge(current.id);
+    }
+    if (strategyPill) {
+      strategyPill.setAttribute(
+        'title',
+        `Current: ${current.name} - ${current.description}. Click to switch algorithm.`
+      );
+    }
+  };
+
+  const abView = new AbComparisonView(strategyManager, {
+    onSelectStrategy: (strategy) => {
+      controller.setScoreStrategy(strategy);
+      updateStrategyUI();
+    },
+  });
+
+  controller = new DrawingController(canvas, view, stateMachine, strokeBuffer, {
     scoreStrategy: activeStrategy,
+    strategyManager,
+    onMultiEvaluationComplete: (evaluations) => {
+      abView.showEvaluations(evaluations);
+    },
     onEvaluationComplete: (evaluation) => {
       sessionService.addAttempt({
         score: evaluation.score,
@@ -53,23 +85,6 @@ function initializeApp(): void {
       });
     },
   });
-
-  // Wire Strategy Switcher Pill
-  const strategyPill = document.getElementById('strategy-pill');
-  const strategyLabel = document.getElementById('hud-strategy-name');
-
-  const updateStrategyUI = () => {
-    const current = controller.getScoreStrategy();
-    if (strategyLabel) {
-      strategyLabel.textContent = getStrategyBadge(current.id);
-    }
-    if (strategyPill) {
-      strategyPill.setAttribute(
-        'title',
-        `Current: ${current.name} - ${current.description}. Click to switch algorithm.`
-      );
-    }
-  };
 
   if (strategyPill) {
     strategyPill.addEventListener('click', () => {
@@ -97,10 +112,12 @@ function initializeApp(): void {
     __sessionService: SessionHistoryService;
     __hudView: HudView;
     __strategyManager: ScoreStrategyManager;
+    __abView: AbComparisonView;
   }).__appController = controller;
   (window as unknown as { __sessionService: SessionHistoryService }).__sessionService = sessionService;
   (window as unknown as { __hudView: HudView }).__hudView = hudView;
   (window as unknown as { __strategyManager: ScoreStrategyManager }).__strategyManager = strategyManager;
+  (window as unknown as { __abView: AbComparisonView }).__abView = abView;
 
   // Start idle demo bot after brief initial delay if player hasn't interacted
   let idleTimer: number | null = window.setTimeout(() => {

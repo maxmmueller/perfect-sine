@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { RmseScoreStrategy } from './RmseScoreStrategy';
 import { AreaDeviationScoreStrategy } from './AreaDeviationScoreStrategy';
 import { HarmonicSymmetryScoreStrategy } from './HarmonicSymmetryScoreStrategy';
@@ -129,17 +129,90 @@ describe('Pluggable Scoring Strategies (A/B/n Multi-Variant Testing - US07)', ()
       expect(manager.getStrategy('non_existent').id).toBe('rmse_l2');
     });
 
-    it('should deterministically allocate variants based on session ID', () => {
+    it('should evaluate a curve across all 5 strategies simultaneously via evaluateAll()', () => {
       const manager = new ScoreStrategyManager();
+      const results = manager.evaluateAll(pristinePoints, fit);
+      expect(results).toHaveLength(5);
+      results.forEach((item) => {
+        expect(item.strategy).toBeDefined();
+        expect(item.evaluation.accuracy).toBeGreaterThan(0);
+        expect(item.evaluation.score).toBeGreaterThan(0);
+      });
+    });
 
-      const variantA1 = manager.allocateStrategy('user_session_abc');
-      const variantA2 = manager.allocateStrategy('user_session_abc');
-      expect(variantA1.id).toBe(variantA2.id);
+    it('should record votes, calculate percentages, and identify leading strategy', () => {
+      const manager = new ScoreStrategyManager('rmse_l2');
+      manager.clearVotes();
 
-      // Random allocation without seed
-      const randVariant = manager.allocateStrategy();
-      expect(randVariant).toHaveProperty('id');
-      expect(randVariant).toHaveProperty('name');
+      expect(manager.getVoteSummary().totalVotes).toBe(0);
+      expect(manager.getVoteSummary().leadingStrategyId).toBeNull();
+
+      manager.recordVote('rmse_l2');
+      manager.recordVote('rmse_l2');
+      manager.recordVote('harmonic_symmetry');
+
+      const summary = manager.getVoteSummary();
+      expect(summary.totalVotes).toBe(3);
+      expect(summary.votesPerStrategy['rmse_l2']).toBe(2);
+      expect(summary.votesPerStrategy['harmonic_symmetry']).toBe(1);
+      expect(summary.votesPerStrategy['area_l1']).toBe(0);
+      expect(summary.percentages['rmse_l2']).toBe(66.7);
+      expect(summary.percentages['harmonic_symmetry']).toBe(33.3);
+      expect(summary.leadingStrategyId).toBe('rmse_l2');
+    });
+
+    it('should throw error when attempting to vote for an unknown strategy ID', () => {
+      const manager = new ScoreStrategyManager();
+      expect(() => manager.recordVote('invalid_strategy_xyz')).toThrow();
+    });
+
+    it('should notify subscribers reactively when votes are recorded or cleared', () => {
+      const manager = new ScoreStrategyManager();
+      manager.clearVotes();
+
+      let lastTotal = -1;
+      const unsubscribe = manager.subscribeVotes((summary) => {
+        lastTotal = summary.totalVotes;
+      });
+
+      manager.recordVote('area_l1');
+      expect(lastTotal).toBe(1);
+
+      manager.clearVotes();
+      expect(lastTotal).toBe(0);
+
+      unsubscribe();
+      manager.recordVote('area_l1');
+      expect(lastTotal).toBe(0); // listener unsubscribed
+    });
+
+    it('should handle corrupted or pre-existing storage gracefully upon creation', () => {
+      const mockStorage = {
+        data: '{"rmse_l2": 5, "invalid": "val"}',
+        getItem: vi.fn(() => '{"rmse_l2": 5}'),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      };
+      const manager = new ScoreStrategyManager('rmse_l2', mockStorage);
+      expect(manager.getVoteSummary().votesPerStrategy['rmse_l2']).toBe(5);
+
+      const corruptedStorage = {
+        getItem: vi.fn(() => 'invalid-json{{{'),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      };
+      const safeManager = new ScoreStrategyManager('rmse_l2', corruptedStorage);
+      expect(safeManager.getVoteSummary().totalVotes).toBe(0);
+    });
+
+    it('should allocate deterministically or pseudo-randomly', () => {
+      const manager = new ScoreStrategyManager();
+      const s1 = manager.allocateStrategy('session_seed_1');
+      const s2 = manager.allocateStrategy('session_seed_1');
+      expect(s1.id).toBe(s2.id);
+
+      const randStrategy = manager.allocateStrategy();
+      expect(randStrategy).toBeDefined();
     });
   });
 });

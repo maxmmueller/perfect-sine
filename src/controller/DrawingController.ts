@@ -8,6 +8,7 @@ import { CoordinateSystem, CoordinateFrame } from '../model/CoordinateSystem';
 import { DemoBot, DemoWaveOptions } from '../model/DemoBot';
 import { IScoreStrategy } from '../model/scoring/IScoreStrategy';
 import { RmseScoreStrategy } from '../model/scoring/RmseScoreStrategy';
+import { ScoreStrategyManager, ScorerEvaluationItem } from '../model/scoring/ScoreStrategyManager';
 import { StrokeEvaluation } from '../model/types';
 
 export class DrawingController {
@@ -15,13 +16,16 @@ export class DrawingController {
   private readonly view: CanvasView;
   private readonly stateMachine: GameStateMachine;
   private readonly strokeBuffer: StrokeBuffer;
+  private readonly strategyManager?: ScoreStrategyManager;
   private scoreStrategy: IScoreStrategy;
   private isPointerDown = false;
   private lastEvaluation: StrokeEvaluation | null = null;
+  private allEvaluations: ScorerEvaluationItem[] = [];
   private liveEvaluation: StrokeEvaluation | null = null;
   private lastValidationMessage: string | null = null;
   private coordinateFrame: CoordinateFrame | null = null;
   private readonly onEvaluationComplete?: (evaluation: StrokeEvaluation) => void;
+  private readonly onMultiEvaluationComplete?: (evaluations: ScorerEvaluationItem[]) => void;
   private readonly onReset?: () => void;
   private demoAnimationId: number | null = null;
   private demoTimeoutId: number | null = null;
@@ -34,7 +38,9 @@ export class DrawingController {
     strokeBuffer: StrokeBuffer,
     options?: {
       scoreStrategy?: IScoreStrategy;
+      strategyManager?: ScoreStrategyManager;
       onEvaluationComplete?: (evaluation: StrokeEvaluation) => void;
+      onMultiEvaluationComplete?: (evaluations: ScorerEvaluationItem[]) => void;
       onReset?: () => void;
     }
   ) {
@@ -42,8 +48,10 @@ export class DrawingController {
     this.view = view;
     this.stateMachine = stateMachine;
     this.strokeBuffer = strokeBuffer;
-    this.scoreStrategy = options?.scoreStrategy ?? new RmseScoreStrategy();
+    this.strategyManager = options?.strategyManager;
+    this.scoreStrategy = options?.scoreStrategy ?? options?.strategyManager?.getActiveStrategy() ?? new RmseScoreStrategy();
     this.onEvaluationComplete = options?.onEvaluationComplete;
+    this.onMultiEvaluationComplete = options?.onMultiEvaluationComplete;
     this.onReset = options?.onReset;
 
     this.bindEvents();
@@ -197,6 +205,12 @@ export class DrawingController {
     this.coordinateFrame = CoordinateSystem.computeFrame(fit, points);
     this.liveEvaluation = null;
     this.lastValidationMessage = null;
+
+    if (this.strategyManager) {
+      this.allEvaluations = this.strategyManager.evaluateAll(points, fit, 30);
+      this.onMultiEvaluationComplete?.(this.allEvaluations);
+    }
+
     if (this.onEvaluationComplete) {
       this.onEvaluationComplete(this.lastEvaluation);
     }
@@ -206,8 +220,15 @@ export class DrawingController {
     return this.scoreStrategy;
   }
 
+  public getAllEvaluations(): readonly ScorerEvaluationItem[] {
+    return this.allEvaluations;
+  }
+
   public setScoreStrategy(strategy: IScoreStrategy): void {
     this.scoreStrategy = strategy;
+    if (this.strategyManager) {
+      this.strategyManager.setActiveStrategy(strategy.id);
+    }
     if (this.lastEvaluation) {
       const points = this.strokeBuffer.getPoints();
       this.lastEvaluation = this.scoreStrategy.evaluate(points, this.lastEvaluation.fittedSine, 30);
@@ -225,6 +246,7 @@ export class DrawingController {
     }
     this.strokeBuffer.clear();
     this.lastEvaluation = null;
+    this.allEvaluations = [];
     this.liveEvaluation = null;
     this.lastValidationMessage = null;
     this.coordinateFrame = null;
