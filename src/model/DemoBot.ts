@@ -5,6 +5,10 @@ export interface DemoWaveOptions {
   readonly width?: number;
   /** Canvas/viewport height (default 600) */
   readonly height?: number;
+  /** Center X position in pixels (default width / 2) */
+  readonly centerX?: number;
+  /** Center Y position in pixels (default height / 2) */
+  readonly centerY?: number;
   /** Amplitude in pixels (default 45) */
   readonly amplitude?: number;
   /** Wavelength in pixels for 1 full cycle (default 220) */
@@ -42,8 +46,8 @@ export class DemoBot {
     const rng = options.rng ?? Math.random;
 
     const totalLength = cycles * wavelength;
-    const centerX = width / 2;
-    const centerY = height / 2;
+    const centerX = options.centerX ?? width / 2;
+    const centerY = options.centerY ?? height / 2;
     const startXPrime = -totalLength / 2;
 
     const cosTilt = Math.cos(tiltAngle);

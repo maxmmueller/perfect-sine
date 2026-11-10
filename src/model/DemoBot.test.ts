@@ -75,6 +75,22 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
     expect(Math.abs(fit!.tilt.angle)).toBeCloseTo(tiltAngle, 1);
   });
 
+  it('should support custom centerX and centerY positions', () => {
+    const points = DemoBot.generateStroke({
+      width: 1000,
+      height: 800,
+      centerX: 300,
+      centerY: 150,
+      amplitude: 40,
+      wavelength: 200,
+      cycles: 1.0,
+      jitterLevel: 0,
+    });
+
+    const sumY = points.reduce((acc, p) => acc + p.y, 0) / points.length;
+    expect(sumY).toBeCloseTo(150, 0);
+  });
+
   it('should clamp minimum parameters safely on boundary inputs', () => {
     const points = DemoBot.generateStroke({
       amplitude: -10, // clamped to >= 10
