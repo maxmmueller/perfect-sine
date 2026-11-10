@@ -36,8 +36,8 @@ export interface DemoWaveOptions {
   readonly stepPx?: number;
   /** Optional pseudo-random number generator for deterministic testing */
   readonly rng?: () => number;
-  /** Optional wave imperfection profile for demo variety (pristine, wobbly, uneven, runaway) */
-  readonly profile?: 'pristine' | 'wobbly' | 'uneven' | 'runaway';
+  /** Optional wave imperfection profile for demo variety (pristine, wobbly, uneven, runaway, mixed) */
+  readonly profile?: 'pristine' | 'wobbly' | 'uneven' | 'runaway' | 'mixed';
 }
 
 export interface DemoWaveResult {
@@ -104,12 +104,37 @@ export class DemoBot {
     if (!profile) {
       if (options.runawayDrift && Math.abs(options.runawayDrift) >= 20) {
         profile = 'runaway';
-      } else if (jitterLevel >= 3.0) {
+      } else if (options.jitterLevel !== undefined && options.jitterLevel >= 3.0) {
         profile = 'wobbly';
-      } else if (jitterLevel === 0) {
+      } else if (options.jitterLevel !== undefined && options.jitterLevel <= 2.5) {
         profile = 'pristine';
+      } else {
+        profile = 'mixed';
       }
     }
+
+    // Parameters for 'mixed' profile combining all 4 human error characteristics into a single stroke:
+    // - Pristine: confident, accurate stroke segments (~35% green, hue >= 90°)
+    // - Wobbly: natural neuromuscular hand tremor (~30% lime & yellow, hue 60°-90°)
+    // - Uneven: asymmetric peak overshoot and amplitude sag (~20% amber & orange, hue 25°-60°)
+    // - Runaway: hand slip and trajectory drift (~15% deep orange & red, hue 0°-25°)
+    const mixedRunawayCenter = 0.38 + rng() * 0.36;
+    const mixedRunawaySpread = 0.135;
+    const mixedRunawayDir = rng() < 0.5 ? 1 : -1;
+    const mixedRunawayPeakOffset = mixedRunawayDir * (31 + rng() * 6);
+    const mixedRunawayEnd = rng() < 0.25;
+
+    const mixedUnevenCenter = mixedRunawayCenter < 0.55 ? 0.74 + rng() * 0.12 : 0.18 + rng() * 0.12;
+    const mixedUnevenSpread = 0.145;
+    const mixedUnevenDir = rng() < 0.5 ? 1 : -1;
+    const mixedUnevenAmpDelta = mixedUnevenDir * (21 + rng() * 5);
+
+    const mixedWobblyCenter = (mixedRunawayCenter + mixedUnevenCenter) / 2 > 0.5 ? 0.22 + rng() * 0.20 : 0.65 + rng() * 0.20;
+    const mixedWobblySpread = 0.26;
+    const mixedTremorFreq = omega * 4.2;
+    const mixedTremorPhase = rng() * Math.PI * 2;
+    const mixedDriftPhase = rng() * Math.PI * 2;
+    const mixedDriftAmp = 5.0;
 
     let ampModDepth = 0;
     let smoothTremorAmp = 0;
@@ -155,7 +180,7 @@ export class DemoBot {
         runawaySpread = 0.15;
         runawayEnd = rng() < 0.40;
       }
-    } else {
+    } else if (profile !== 'mixed') {
       ampModDepth = jitterLevel > 0 ? Math.min(0.20, (jitterLevel / 2.5) * 0.10) : 0;
       smoothTremorAmp = jitterLevel > 0 ? (jitterLevel / 2.5) * 3.5 : 0;
       skewFactor = jitterLevel > 0 ? (jitterLevel / 2.5) * 0.05 : 0;
@@ -181,31 +206,65 @@ export class DemoBot {
       const progress = u / totalLength;
       const nominalAngle = omega * u + initialPhase;
 
-      // 1. Local dynamic amplitude (each peak/trough is slightly organic)
-      const localAmplitude = amplitude * (1 + ampModDepth * Math.sin(ampModFreq * u + ampModPhase));
+      let localY: number;
 
-      // 2. Stroke curve with fast-hand skew and smooth natural tremor
-      const skew = skewFactor * Math.sin(2 * nominalAngle);
-      const tremor = smoothTremorAmp * Math.sin(smoothTremorFreq * u + smoothTremorPhase);
-      const idealY = localAmplitude * Math.sin(nominalAngle + skew) + tremor;
-
-      // 3. Gentle baseline drift from wrist/arm pivot
-      const baselineDrift = driftAmp * Math.sin(progress * Math.PI + driftPhase);
-
-      // 4. Runaway drift / hand slip ("aus dem Ufer laufen")
-      let runawayOffset = 0;
-      if (runawayDrift !== 0) {
-        if (runawayEnd) {
-          const sigmoid = 1 / (1 + Math.exp(-12 * (progress - runawayCenter)));
-          runawayOffset = runawayDrift * sigmoid;
+      if (profile === 'mixed') {
+        // 1. Runaway slip envelope (covers ~15% into deep orange & red, hue 0°-25°)
+        let runawayVal = 0;
+        if (mixedRunawayEnd) {
+          const sigmoid = 1 / (1 + Math.exp(-12 * (progress - mixedRunawayCenter)));
+          runawayVal = mixedRunawayPeakOffset * sigmoid;
         } else {
-          const dProg = (progress - runawayCenter) / runawaySpread;
-          runawayOffset = runawayDrift * Math.exp(-0.5 * dProg * dProg);
+          const dRun = (progress - mixedRunawayCenter) / mixedRunawaySpread;
+          runawayVal = mixedRunawayPeakOffset * Math.exp(-0.5 * dRun * dRun);
         }
+
+        // 2. Uneven peak modulation envelope (covers ~20% into amber & orange, hue 25°-60°)
+        const dUneven = (progress - mixedUnevenCenter) / mixedUnevenSpread;
+        const unevenWeight = Math.exp(-0.5 * dUneven * dUneven);
+        const localAmp = amplitude + mixedUnevenAmpDelta * unevenWeight;
+
+        // 3. Wobbly tremor envelope (covers ~30% into lime & yellow, hue 60°-90°)
+        const dWob = (progress - mixedWobblyCenter) / mixedWobblySpread;
+        const wobWeight = Math.exp(-0.5 * dWob * dWob);
+        const tremorAmp = 4.2 + wobWeight * 8.5;
+        const tremor = tremorAmp * Math.sin(mixedTremorFreq * u + mixedTremorPhase);
+
+        // 4. Arm pivot drift
+        const drift = mixedDriftAmp * Math.sin(progress * Math.PI + mixedDriftPhase);
+
+        // 5. Asymmetric momentum skew
+        const skew = 0.05 * Math.sin(2 * nominalAngle);
+
+        localY = localAmp * Math.sin(nominalAngle + skew) + tremor + drift + runawayVal;
+      } else {
+        // 1. Local dynamic amplitude (each peak/trough is slightly organic)
+        const localAmplitude = amplitude * (1 + ampModDepth * Math.sin(ampModFreq * u + ampModPhase));
+
+        // 2. Stroke curve with fast-hand skew and smooth natural tremor
+        const skew = skewFactor * Math.sin(2 * nominalAngle);
+        const tremor = smoothTremorAmp * Math.sin(smoothTremorFreq * u + smoothTremorPhase);
+        const idealY = localAmplitude * Math.sin(nominalAngle + skew) + tremor;
+
+        // 3. Gentle baseline drift from wrist/arm pivot
+        const baselineDrift = driftAmp * Math.sin(progress * Math.PI + driftPhase);
+
+        // 4. Runaway drift / hand slip ("aus dem Ufer laufen")
+        let runawayOffset = 0;
+        if (runawayDrift !== 0) {
+          if (runawayEnd) {
+            const sigmoid = 1 / (1 + Math.exp(-12 * (progress - runawayCenter)));
+            runawayOffset = runawayDrift * sigmoid;
+          } else {
+            const dProg = (progress - runawayCenter) / runawaySpread;
+            runawayOffset = runawayDrift * Math.exp(-0.5 * dProg * dProg);
+          }
+        }
+
+        localY = idealY + baselineDrift + runawayOffset;
       }
 
       const localX = xPrime;
-      const localY = idealY + baselineDrift + runawayOffset;
 
       // 4. Rotate and translate into screen space
       const screenX = centerX + localX * cosTilt - localY * sinTilt;

@@ -364,27 +364,17 @@ export class DrawingController {
       .filter((w) => w.alpha >= 0.08 && w.deviations.length >= 2)
       .map((w) => w.deviations.map((d) => d.point));
 
-    // Imperfection Profile: diverse mix of qualities across demo cycles
-    // pristine (~35% green), wobbly (~30% lime/yellow), uneven (~20% yellow/orange), runaway (~15% red)
-    let defaultProfile: 'pristine' | 'wobbly' | 'uneven' | 'runaway';
+    // Mixed multi-error profile: every demo wave naturally contains a realistic mixture of
+    // pristine (~35% green), wobbly (~30% lime/yellow), uneven (~20% amber/orange), and runaway (~15% red)
+    let defaultProfile: 'pristine' | 'wobbly' | 'uneven' | 'runaway' | 'mixed' = 'mixed';
     if (
       customOptions?.jitterLevel !== undefined &&
       customOptions.jitterLevel <= 2.0 &&
       (!customOptions.runawayDrift || customOptions.runawayDrift === 0)
     ) {
       defaultProfile = 'pristine';
-    } else {
-      const profileDice = Math.random();
-      defaultProfile =
-        profileDice < 0.35
-          ? 'pristine'
-          : profileDice < 0.65
-          ? 'wobbly'
-          : profileDice < 0.85
-          ? 'uneven'
-          : 'runaway';
     }
-    const profile: 'pristine' | 'wobbly' | 'uneven' | 'runaway' = customOptions?.profile ?? defaultProfile;
+    const profile: 'pristine' | 'wobbly' | 'uneven' | 'runaway' | 'mixed' = customOptions?.profile ?? defaultProfile;
 
     const speedDice = Math.random();
     const speedPxPerSec = customOptions?.speedPxPerSec ?? (
@@ -400,46 +390,49 @@ export class DrawingController {
     const maxAttempts = customOptions?.centerY !== undefined ? 1 : 24;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      // If historical waves are taking up too much room, progressively prune oldest
-      if (attempt === 12 && this.demoHistory.length > 1) {
+      // If historical waves are taking up too much room after 20 attempts, prune oldest
+      if (attempt === 20 && this.demoHistory.length > 1) {
         this.demoHistory.shift();
         visiblePointsList = this.demoHistory
           .filter((w) => w.alpha >= 0.08 && w.deviations.length >= 2)
           .map((w) => w.deviations.map((d) => d.point));
-      } else if (attempt === 18 && this.demoHistory.length > 0) {
+      } else if (attempt === 23 && this.demoHistory.length > 0) {
         this.demoHistory = [];
         visiblePointsList = [];
       }
 
       const hasHistory = visiblePointsList.length > 0;
+      const crowded = visiblePointsList.length >= 2;
 
-      // 1. Amplitude a: vary between 22px and 52px (more compact when canvas is occupied)
+      // 1. Amplitude a: compact when canvas is crowded
       const amplitude = customOptions?.amplitude ?? (
-        hasHistory ? 22 + Math.random() * 24 : 24 + Math.random() * 32
+        crowded ? 20 + Math.random() * 16 : hasHistory ? 22 + Math.random() * 22 : 24 + Math.random() * 32
       );
 
-      // 2. Frequency / Wavelength b: 100px to 240px
+      // 2. Frequency / Wavelength b: 90px to 150px when crowded
       const wavelength = customOptions?.wavelength ?? (
-        hasHistory ? 100 + Math.random() * 120 : 110 + Math.random() * 150
+        crowded ? 90 + Math.random() * 60 : hasHistory ? 100 + Math.random() * 110 : 110 + Math.random() * 150
       );
 
       // 3. Initial phase c: [0, 2*PI]
       const phase = customOptions?.phase ?? Math.random() * Math.PI * 2;
 
-      // 4. Tilt: ~40% tilted
-      const hasTilt = customOptions?.tiltAngle !== undefined ? true : Math.random() < 0.40;
+      // 4. Tilt: subtle when crowded
+      const hasTilt = customOptions?.tiltAngle !== undefined ? true : Math.random() < (crowded ? 0.25 : 0.40);
       const tiltSign = Math.random() < 0.5 ? 1 : -1;
       const defaultTiltAngle = hasTilt
-        ? tiltSign * (hasHistory ? 0.08 + Math.random() * 0.12 : 0.12 + Math.random() * 0.18)
+        ? tiltSign * (crowded ? 0.05 + Math.random() * 0.08 : hasHistory ? 0.08 + Math.random() * 0.12 : 0.12 + Math.random() * 0.18)
         : (Math.random() - 0.5) * 0.04;
       const tiltAngle = customOptions?.tiltAngle ?? defaultTiltAngle;
 
-      // 5. Cycles: more compact (1.3 - 2.2) when historical waves exist, up to 3.6 on open canvas
+      // 5. Cycles: compact (1.1 - 1.6) when crowded, 1.3 - 2.1 with 1 wave, up to 3.5 when open
       let cycles: number;
       if (customOptions?.cycles !== undefined) {
         cycles = customOptions.cycles;
+      } else if (crowded) {
+        cycles = 1.1 + Math.random() * 0.5; // 1.1 - 1.6 cycles
       } else if (hasHistory) {
-        cycles = 1.3 + Math.random() * 0.9; // 1.3 - 2.2 cycles
+        cycles = 1.3 + Math.random() * 0.8; // 1.3 - 2.1 cycles
       } else {
         const cDice = Math.random();
         cycles = cDice < 0.35
@@ -503,8 +496,9 @@ export class DrawingController {
 
       // Verify zero overlap against all visible historical waves
       let overlaps = false;
+      const minDistance = crowded ? 26 : 32;
       for (const histPoints of visiblePointsList) {
-        if (this.checkWavesOverlap(candidateResult.points, histPoints, 35)) {
+        if (this.checkWavesOverlap(candidateResult.points, histPoints, minDistance)) {
           overlaps = true;
           break;
         }
