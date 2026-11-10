@@ -143,4 +143,43 @@ describe('CanvasView', () => {
     view.renderFittedSineGuideline([{ x: 10, y: 20 }, { x: 20, y: 30 }]);
     expect(mockCtx.setLineDash).toHaveBeenCalledWith([6, 6]);
   });
+
+  it('should consistently render wave tracer for all tiers including low tier', () => {
+    const view = new CanvasView(mockCanvas);
+    const deviations: PointDeviation[] = [
+      { point: { x: 0, y: 100 }, distance: 0, normalizedError: 0, hue: 120, color: 'green' },
+      { point: { x: 100, y: 150 }, distance: 0, normalizedError: 0, hue: 120, color: 'green' },
+      { point: { x: 200, y: 100 }, distance: 0, normalizedError: 0, hue: 120, color: 'green' },
+    ];
+
+    mockCtx.save.mockClear();
+    mockCtx.arc.mockClear();
+
+    // Low tier MUST consistently render (user requirement)
+    view.renderWaveTracer(deviations, 0.5, 'low');
+    expect(mockCtx.save).toHaveBeenCalled();
+    expect(mockCtx.arc).toHaveBeenCalled();
+
+    // Boundary conditions
+    mockCtx.save.mockClear();
+    view.renderWaveTracer(deviations, 0, 'low');
+    expect(mockCtx.save).not.toHaveBeenCalled();
+
+    view.renderWaveTracer(deviations, 1.2, 'low');
+    expect(mockCtx.save).not.toHaveBeenCalled();
+
+    // Legendary tier with trailing sparks
+    mockCtx.save.mockClear();
+    const longDeviations: PointDeviation[] = Array.from({ length: 15 }, (_, i) => ({
+      point: { x: i * 20, y: 100 },
+      distance: 0,
+      normalizedError: 0,
+      hue: 120,
+      color: 'green',
+    }));
+    view.renderWaveTracer(longDeviations, 0.8, 'legendary');
+    expect(mockCtx.save).toHaveBeenCalled();
+    expect(mockCtx.restore).toHaveBeenCalled();
+  });
 });
+
