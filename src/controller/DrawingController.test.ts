@@ -39,6 +39,8 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       renderCoordinateAxes: vi.fn(),
       renderOriginMarker: vi.fn(),
       renderBanner: vi.fn(),
+      renderCalculationBanner: vi.fn(),
+      renderWaveTracer: vi.fn(),
       handleResize: vi.fn(),
       getDimensions: () => ({ width: 800, height: 600, dpr: 1 }),
     } as unknown as CanvasView;

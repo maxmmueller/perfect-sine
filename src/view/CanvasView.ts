@@ -1,4 +1,5 @@
 import { Point, PointDeviation } from '../model/types';
+import { ScoreAnimationState, ScoreAnimationTier } from './ScoreCalculationAnimator';
 
 /**
  * CanvasView
@@ -244,8 +245,197 @@ export class CanvasView {
   }
 
   /**
-   * Renders a transient notification or prominent score & accuracy banner directly on canvas.
-   * School notebook style: crisp typography, large score, smaller accuracy, zero glow.
+   * Renders the dynamic score calculation banner:
+   * 1. Top: Hero Accuracy (prominent, bold, color-coded)
+   * 2. Bottom: Animated calculation showing how the Score is derived from the sine wave length (cycles).
+   * Conspicuous celebration particles and ripple animations scale up with higher scores.
+   */
+  public renderCalculationBanner(state: ScoreAnimationState): void {
+    this.ctx.save();
+    this.ctx.shadowBlur = 0;
+    const cx = this.width / 2;
+    const isMobile = this.width < 520;
+    const heroFontSize = isMobile ? 38 : 52;
+    const subFontSize = isMobile ? 15 : 20;
+
+    // 1. Groß oben: Hero Headline ONLY Accuracy
+    let accColor = '#22c55e'; // green
+    if (state.accuracy < 50) {
+      accColor = '#ef4444'; // red
+    } else if (state.accuracy < 80) {
+      accColor = '#f59e0b'; // amber
+    }
+
+    this.ctx.textAlign = 'center';
+    this.ctx.font = `800 ${heroFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+    this.ctx.fillStyle = accColor;
+    this.ctx.fillText(`Accuracy: ${state.accuracy}%`, cx, isMobile ? 54 : 66);
+
+    // 2. Unten drunter: Animated calculation from sine length (cycles) to Score
+    const calcY = isMobile ? 90 : 106;
+
+    // Optional celebratory ripple for high & legendary tiers
+    if (state.rippleRadius > 0 && state.rippleAlpha > 0) {
+      this.ctx.beginPath();
+      this.ctx.arc(cx, calcY, state.rippleRadius, 0, Math.PI * 2);
+      this.ctx.strokeStyle =
+        state.tier === 'legendary'
+          ? `rgba(250, 204, 21, ${state.rippleAlpha})`
+          : `rgba(34, 197, 94, ${state.rippleAlpha})`;
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+    }
+
+    // Mini sine wave indicator (~64px wide) placed centered above the calculation
+    const miniWaveWidth = isMobile ? 48 : 64;
+    const miniWaveHeight = 6;
+    const miniWaveStartX = cx - miniWaveWidth / 2;
+    const miniWaveY = calcY - (isMobile ? 16 : 20);
+
+    this.ctx.save();
+    this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    this.ctx.lineWidth = 1.5;
+    this.ctx.beginPath();
+    for (let x = 0; x <= miniWaveWidth; x += 2) {
+      const angle = (x / miniWaveWidth) * Math.PI * 2 * Math.max(1, state.currentCycles);
+      const y = miniWaveY + Math.sin(angle) * miniWaveHeight;
+      if (x === 0) this.ctx.moveTo(miniWaveStartX + x, y);
+      else this.ctx.lineTo(miniWaveStartX + x, y);
+    }
+    this.ctx.stroke();
+
+    // Pulse bead on mini wave during measuring
+    if (state.phase === 'measuring') {
+      const beadX = miniWaveStartX + miniWaveWidth * state.waveTracerProgress;
+      const beadAngle = state.waveTracerProgress * Math.PI * 2 * Math.max(1, state.currentCycles);
+      const beadY = miniWaveY + Math.sin(beadAngle) * miniWaveHeight;
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.beginPath();
+      this.ctx.arc(beadX, beadY, 3, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
+    this.ctx.restore();
+
+    // Calculation text formatting based on animation phase
+    let scoreColor = '#38bdf8';
+    if (state.targetScore < 300) scoreColor = '#ef4444';
+    else if (state.targetScore < 700) scoreColor = '#f59e0b';
+    else if (state.targetScore < 1000) scoreColor = '#22c55e';
+    else scoreColor = '#facc15';
+
+    if (state.phase === 'measuring') {
+      this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      this.ctx.fillStyle = '#94a3b8';
+      this.ctx.fillText(`Measuring Length: ${state.currentCycles.toFixed(1)} cycles...`, cx, calcY);
+    } else if (state.phase === 'multiplying') {
+      this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      this.ctx.fillStyle = '#cbd5e1';
+      this.ctx.fillText(
+        `${state.accuracy}%  ×  ${state.fullCycles.toFixed(1)} cycles  ➔  Score: ${state.currentScore.toLocaleString()} pts`,
+        cx,
+        calcY
+      );
+    } else {
+      // Celebrating or settled: highlight score with scale bounce
+      const finalFontSize = Math.round(subFontSize * state.scaleFactor);
+      this.ctx.font = `800 ${finalFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      this.ctx.fillStyle = scoreColor;
+
+      let calcText = '';
+      if (state.tier === 'legendary') {
+        calcText = `★  Score: ${state.targetScore.toLocaleString()} pts  ★  (${state.fullCycles.toFixed(1)} cycles)`;
+      } else if (state.tier === 'high') {
+        calcText = `Score: ${state.targetScore.toLocaleString()} pts  ·  ${state.fullCycles.toFixed(1)} cycles`;
+      } else {
+        calcText = `Score: ${state.targetScore.toLocaleString()} pts  (${state.fullCycles.toFixed(1)} cycles)`;
+      }
+      this.ctx.fillText(calcText, cx, calcY);
+    }
+
+    // Render celebratory particles
+    if (state.particles.length > 0) {
+      for (const p of state.particles) {
+        this.ctx.save();
+        this.ctx.globalAlpha = p.alpha;
+        this.ctx.fillStyle = p.color;
+
+        if (p.shape === 'star') {
+          const r = p.size;
+          this.ctx.beginPath();
+          this.ctx.moveTo(p.x, p.y - r);
+          this.ctx.lineTo(p.x + r * 0.3, p.y - r * 0.3);
+          this.ctx.lineTo(p.x + r, p.y);
+          this.ctx.lineTo(p.x + r * 0.3, p.y + r * 0.3);
+          this.ctx.lineTo(p.x, p.y + r);
+          this.ctx.lineTo(p.x - r * 0.3, p.y + r * 0.3);
+          this.ctx.lineTo(p.x - r, p.y);
+          this.ctx.lineTo(p.x - r * 0.3, p.y - r * 0.3);
+          this.ctx.closePath();
+          this.ctx.fill();
+        } else {
+          this.ctx.beginPath();
+          this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
+        this.ctx.restore();
+      }
+    }
+
+    this.ctx.restore();
+  }
+
+  /**
+   * Renders a traveling tracer bead along the actual drawn canvas wave during length measurement.
+   */
+  public renderWaveTracer(
+    deviations: readonly PointDeviation[],
+    progress: number,
+    tier: ScoreAnimationTier
+  ): void {
+    if (deviations.length < 2 || progress <= 0 || progress > 1.0) return;
+    if (tier === 'low') return;
+
+    this.ctx.save();
+    this.ctx.shadowBlur = 0;
+
+    const idx = Math.min(deviations.length - 1, Math.floor(progress * (deviations.length - 1)));
+    const pt = deviations[idx].point;
+
+    const radius = tier === 'legendary' ? 6 : tier === 'high' ? 5 : 4;
+    const ringColor = tier === 'legendary' ? '#facc15' : tier === 'high' ? '#22c55e' : '#38bdf8';
+
+    // Outer ring
+    this.ctx.beginPath();
+    this.ctx.arc(pt.x, pt.y, radius + 3, 0, Math.PI * 2);
+    this.ctx.strokeStyle = ringColor;
+    this.ctx.lineWidth = 1.5;
+    this.ctx.stroke();
+
+    // Central core
+    this.ctx.beginPath();
+    this.ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fill();
+
+    // Trailing sparks for legendary tier
+    if (tier === 'legendary' && idx > 4) {
+      for (let trail = 1; trail <= 3; trail++) {
+        const trailPt = deviations[idx - trail * 2]?.point;
+        if (trailPt) {
+          this.ctx.beginPath();
+          this.ctx.arc(trailPt.x, trailPt.y, 2.5 - trail * 0.6, 0, Math.PI * 2);
+          this.ctx.fillStyle = `rgba(250, 204, 21, ${0.8 - trail * 0.25})`;
+          this.ctx.fill();
+        }
+      }
+    }
+
+    this.ctx.restore();
+  }
+
+  /**
+   * Renders a transient notification or fallback banner directly on canvas.
+   * School notebook style: crisp typography, large accuracy on top, zero glow.
    */
   public renderBanner(
     title: string,
@@ -264,6 +454,31 @@ export class CanvasView {
       this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       this.ctx.fillStyle = '#ef4444';
       this.ctx.fillText(title, cx, isMobile ? 54 : 66);
+      this.ctx.restore();
+      return;
+    }
+
+    // If title starts with Accuracy:
+    const accMatch = title.match(/^Accuracy:\s*(\d+%?)/i);
+    if (accMatch) {
+      const accVal = parseInt(accMatch[1].replace('%', ''), 10);
+      let accColor = '#22c55e';
+      if (!isNaN(accVal)) {
+        if (accVal < 50) accColor = '#ef4444';
+        else if (accVal < 80) accColor = '#f59e0b';
+      }
+
+      this.ctx.textAlign = 'center';
+      this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      this.ctx.fillStyle = accColor;
+      this.ctx.fillText(title, cx, isMobile ? 54 : 66);
+
+      if (subtitle) {
+        const subFontSize = isMobile ? 16 : 20;
+        this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        this.ctx.fillStyle = '#cbd5e1';
+        this.ctx.fillText(subtitle, cx, isMobile ? 82 : 98);
+      }
       this.ctx.restore();
       return;
     }
@@ -290,7 +505,6 @@ export class CanvasView {
       this.ctx.fillText(displayScore, cx, isMobile ? 54 : 66);
 
       if (subtitle) {
-        // Only show Accuracy; completely omit cycles, R^2, and retry hints
         let accuracyText = subtitle.split('|')[0].trim();
         if (!accuracyText.toLowerCase().startsWith('accuracy') && !accuracyText.toLowerCase().startsWith('bot accuracy')) {
           accuracyText = `Accuracy: ${accuracyText}`;
