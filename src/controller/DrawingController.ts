@@ -10,6 +10,7 @@ import { IScoreStrategy } from '../model/scoring/IScoreStrategy';
 import { UnifiedEnsembleScoreStrategy } from '../model/scoring/UnifiedEnsembleScoreStrategy';
 import { ScoreStrategyManager, ScorerEvaluationItem } from '../model/scoring/ScoreStrategyManager';
 import { StrokeEvaluation } from '../model/types';
+import { ScoreCalculationAnimator } from '../view/ScoreCalculationAnimator';
 
 export class DrawingController {
   private readonly canvas: HTMLCanvasElement;
@@ -17,6 +18,7 @@ export class DrawingController {
   private readonly stateMachine: GameStateMachine;
   private readonly strokeBuffer: StrokeBuffer;
   private readonly strategyManager?: ScoreStrategyManager;
+  private readonly scoreAnimator = new ScoreCalculationAnimator();
   private scoreStrategy: IScoreStrategy;
   private isPointerDown = false;
   private lastEvaluation: StrokeEvaluation | null = null;
@@ -29,6 +31,7 @@ export class DrawingController {
   private readonly onReset?: () => void;
   private demoAnimationId: number | null = null;
   private demoTimeoutId: number | null = null;
+  private scoreAnimId: number | null = null;
   private isDemoActive = false;
 
   constructor(
@@ -113,6 +116,8 @@ export class DrawingController {
     }
 
     this.isPointerDown = true;
+    this.stopCalculationAnimation();
+    this.scoreAnimator.reset();
     this.strokeBuffer.clear();
     this.lastEvaluation = null;
     this.liveEvaluation = null;
@@ -212,6 +217,12 @@ export class DrawingController {
     this.liveEvaluation = null;
     this.lastValidationMessage = null;
 
+    const dims = this.view.getDimensions();
+    const originX = dims.width / 2;
+    const originY = dims.width < 520 ? 90 : 106;
+    this.scoreAnimator.start(this.lastEvaluation, originX, originY);
+    this.startCalculationAnimation();
+
     if (this.strategyManager) {
       this.allEvaluations = this.strategyManager.evaluateAll(points, fit, 30);
       this.onMultiEvaluationComplete?.(this.allEvaluations);
@@ -219,6 +230,29 @@ export class DrawingController {
 
     if (this.onEvaluationComplete) {
       this.onEvaluationComplete(this.lastEvaluation);
+    }
+  }
+
+  private startCalculationAnimation(): void {
+    this.stopCalculationAnimation();
+    const frame = () => {
+      if (this.stateMachine.getState() !== 'LOCKED') return;
+      this.render();
+      if (this.scoreAnimator.isActive()) {
+        if (typeof requestAnimationFrame !== 'undefined') {
+          this.scoreAnimId = requestAnimationFrame(frame);
+        }
+      }
+    };
+    if (typeof requestAnimationFrame !== 'undefined') {
+      this.scoreAnimId = requestAnimationFrame(frame);
+    }
+  }
+
+  public stopCalculationAnimation(): void {
+    if (this.scoreAnimId !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(this.scoreAnimId);
+      this.scoreAnimId = null;
     }
   }
 
@@ -244,6 +278,8 @@ export class DrawingController {
 
   public reset(): void {
     this.stopDemo();
+    this.stopCalculationAnimation();
+    this.scoreAnimator.reset();
     if (this.stateMachine.getState() === 'DRAWING') {
       this.stateMachine.finishDrawing();
     }
@@ -380,28 +416,28 @@ export class DrawingController {
       // 2. Render color-interpolated user stroke
       this.view.renderEvaluatedStroke(this.lastEvaluation.deviations);
 
-      // 3. Render score HUD banner (Score large, Accuracy somewhat smaller, no extra noise)
-      const score = this.lastEvaluation.score;
-      const accuracy = this.lastEvaluation.accuracy;
-      if (this.isDemoActive) {
-        this.view.renderBanner(
-          `Demo: ${score.toLocaleString()} pts`,
-          `Accuracy: ${accuracy}%`
-        );
-      } else {
-        this.view.renderBanner(
-          `Score: ${score.toLocaleString()} pts`,
-          `Accuracy: ${accuracy}%`
+      // 3. Render wave tracer along drawn wave during length measurement animation
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const animState = this.scoreAnimator.update(now);
+
+      if (this.scoreAnimator.isActive() && this.lastEvaluation.deviations.length >= 2) {
+        this.view.renderWaveTracer(
+          this.lastEvaluation.deviations,
+          animState.waveTracerProgress,
+          this.scoreAnimator.getTier()
         );
       }
+
+      // 4. Render Accuracy large on top & animated length-to-score calculation below it
+      this.view.renderCalculationBanner(animState);
     } else if (this.isPointerDown && this.liveEvaluation) {
       // Live drawing in progress with real-time gradient coloring
       this.view.renderEvaluatedStroke(this.liveEvaluation.deviations);
-      const liveScore = this.liveEvaluation.score;
       const liveAccuracy = this.liveEvaluation.accuracy;
+      const cycles = this.liveEvaluation.fittedSine.fullCycles.toFixed(1);
       this.view.renderBanner(
-        `Score: ${liveScore.toLocaleString()} pts`,
-        `Accuracy: ${liveAccuracy}%`
+        `Accuracy: ${liveAccuracy}%`,
+        `Drawing wave: ${cycles} cycles`
       );
     } else if (this.lastValidationMessage) {
       // Incomplete wave feedback: clean, uniform, without additional info
