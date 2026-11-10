@@ -240,5 +240,25 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       controller.stopDemo();
       expect(controller.isDemoPlaying()).toBe(false);
     });
+
+    it('should not score or display results in demo mode', () => {
+      vi.useFakeTimers();
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, {
+        onEvaluationComplete,
+      });
+
+      controller.startDemo();
+      expect(controller.isDemoPlaying()).toBe(true);
+
+      // Fast-forward demo animation
+      vi.advanceTimersByTime(2000);
+
+      expect(onEvaluationComplete).not.toHaveBeenCalled();
+      expect(mockView.renderCalculationBanner).not.toHaveBeenCalled();
+      expect(controller.getLastEvaluation()).toBeNull();
+
+      controller.stopDemo();
+      vi.useRealTimers();
+    });
   });
 });

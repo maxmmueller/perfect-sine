@@ -307,14 +307,24 @@ export class DrawingController {
     const width = dims.width > 0 ? dims.width : 800;
     const height = dims.height > 0 ? dims.height : 600;
 
+    // Vary position, amplitude, wavelength, and tilt to doodle different sine waves across the page
+    const centerY = height * (0.28 + Math.random() * 0.44);
+    const centerX = width * (0.40 + Math.random() * 0.20);
+    const amplitude = 30 + Math.random() * 40;
+    const wavelength = 150 + Math.random() * 110;
+    const cycles = 1.3 + Math.random() * 1.5;
+    const tiltAngle = (Math.random() - 0.5) * 0.24;
+
     const demoPoints = DemoBot.generateStroke({
       width,
       height,
-      amplitude: 45 + Math.random() * 25,
-      wavelength: 200 + Math.random() * 60,
-      cycles: 1.5 + Math.random() * 0.6,
-      tiltAngle: (Math.random() - 0.5) * 0.2,
-      jitterLevel: 2.0,
+      centerX,
+      centerY,
+      amplitude,
+      wavelength,
+      cycles,
+      tiltAngle,
+      jitterLevel: 1.8,
       ...customOptions,
     });
 
@@ -343,20 +353,16 @@ export class DrawingController {
           this.demoAnimationId = requestAnimationFrame(animateStroke);
         }
       } else {
-        // Complete demo stroke: evaluate and display
-        this.evaluateStroke();
-        if (this.stateMachine.getState() === 'DRAWING') {
-          this.stateMachine.finishDrawing();
-        }
-        this.stateMachine.setEvaluated();
-        this.render();
-
+        // Complete demo stroke: do NOT score and do NOT display any results.
+        // Pause briefly, then clear and draw another sine wave at a different position.
         if (typeof setTimeout !== 'undefined') {
           this.demoTimeoutId = setTimeout(() => {
             if (this.isDemoActive) {
+              this.strokeBuffer.clear();
+              this.render();
               this.startDemo();
             }
-          }, 3000) as unknown as number;
+          }, 1200) as unknown as number;
         }
       }
     };
@@ -450,12 +456,9 @@ export class DrawingController {
       const title = isFlat ? 'Sine Wave Too Flat' : 'Incomplete Sine Wave';
       this.view.renderBanner(title, undefined, true);
     } else {
-      // Initial active drawing or idle state
+      // Initial active drawing, demo drawing, or idle state (no banner in demo mode)
       if (points.length > 0) {
         this.view.renderStroke(points);
-      }
-      if (this.isDemoActive) {
-        this.view.renderBanner('Demo Mode');
       }
     }
   }

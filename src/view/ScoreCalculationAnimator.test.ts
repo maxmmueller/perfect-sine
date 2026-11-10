@@ -125,3 +125,4 @@ describe('ScoreCalculationAnimator', () => {
     expect(state.particles.length).toBe(0);
   });
 });
+
