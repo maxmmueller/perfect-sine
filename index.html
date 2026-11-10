@@ -17,6 +17,10 @@
             <span class="hud-label">SCORER</span>
             <span class="hud-val" id="hud-strategy-name">L2</span>
           </button>
+          <button id="ab-toggle-btn" class="hud-pill clickable-pill ab-pill" aria-label="Open A/B Scorer Benchmark" title="Compare all 5 scoring algorithms and vote for the best">
+            <span class="hud-label">A/B TEST</span>
+            <span class="hud-val" id="ab-total-votes">0 votes</span>
+          </button>
           <div class="hud-pill" id="hud-score-pill">
             <span class="hud-label">SCORE</span>
             <span class="hud-val" id="hud-current-score">-</span>
@@ -34,6 +38,31 @@
       <main class="canvas-container">
         <canvas id="sine-canvas"></canvas>
       </main>
+
+      <!-- A/B Scorer Benchmark Comparison Drawer -->
+      <aside id="ab-panel" class="ab-drawer hidden" role="region" aria-label="Scorer A/B Benchmark">
+        <div class="ab-drawer-header">
+          <div class="ab-drawer-title-group">
+            <span class="ab-tag">A/B/n BENCHMARK</span>
+            <h3>Scorer Comparison</h3>
+            <p class="ab-subtitle">Which algorithm scores your wave most accurately? Tap <b>Vote as Best</b> to train the model.</p>
+          </div>
+          <button id="ab-close-btn" class="ab-close-btn" aria-label="Close Benchmark Panel">✕</button>
+        </div>
+
+        <div class="ab-summary-strip">
+          <span class="ab-strip-label">🏆 Leading Scorer:</span>
+          <span id="ab-leading-name" class="ab-strip-val">None yet (Vote below!)</span>
+        </div>
+
+        <div id="ab-scorer-list" class="ab-scorer-list">
+          <!-- Dynamically populated with all 5 algorithms -->
+        </div>
+
+        <div class="ab-drawer-footer">
+          <button id="ab-clear-votes-btn" class="btn-secondary btn-sm">Reset Votes</button>
+        </div>
+      </aside>
 
       <!-- Spotify-Wrapped-Style Summary Modal -->
       <div id="wrapped-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
