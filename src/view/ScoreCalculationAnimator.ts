@@ -46,7 +46,6 @@ export class ScoreCalculationAnimator {
   private targetScore = 0;
   private startTime = 0;
   private tracerDuration = 640;
-  private multiplyingDuration = 480;
   private celebratingDuration = 320;
   private totalDuration = 1440;
   private pathLength = 0;
@@ -82,13 +81,12 @@ export class ScoreCalculationAnimator {
     }
     this.pathLength = strokeLength;
 
-    // Uniform tracer speed: constant ~950 px/s across all wave lengths
+    // Snappy, dynamic tracer speed: ~1450 px/s across all wave lengths
     // Shorter curves take less time, longer curves take proportionally more time
-    const TRACER_SPEED_PX_PER_SEC = 950;
-    this.tracerDuration = Math.max(250, Math.min(2200, (strokeLength / TRACER_SPEED_PX_PER_SEC) * 1000));
-    this.multiplyingDuration = 520;
-    this.celebratingDuration = 380;
-    this.totalDuration = this.tracerDuration + this.multiplyingDuration + this.celebratingDuration;
+    const TRACER_SPEED_PX_PER_SEC = 1450;
+    this.tracerDuration = Math.max(200, Math.min(1200, (strokeLength / TRACER_SPEED_PX_PER_SEC) * 1000));
+    this.celebratingDuration = 450;
+    this.totalDuration = this.tracerDuration + this.celebratingDuration;
 
     // Determine celebration tier based on score magnitude
     if (this.targetScore < 300) {
@@ -160,35 +158,26 @@ export class ScoreCalculationAnimator {
     let rippleAlpha = 0;
 
     const t1 = this.tracerDuration;
-    const t2 = t1 + this.multiplyingDuration;
-    const t3 = this.totalDuration;
+    const t2 = this.totalDuration;
 
-    // Phase 1: Measuring Length at strictly uniform speed along the curve
+    // Phase 1: Measuring Length & counting up score in synchronized lockstep with the tracer
     if (elapsed < t1) {
       phase = 'measuring';
       const p1 = Math.min(1.0, elapsed / t1);
       waveTracerProgress = p1;
       currentCycles = this.fullCycles * p1;
-      currentScore = Math.round(this.targetScore * 0.15 * p1);
+      // Score counts up in perfect lockstep with the tracer, reaching 100% targetScore at the exact moment the tracer hits the end
+      currentScore = Math.round(this.targetScore * p1);
     }
-    // Phase 2: Multiplying Accuracy x Length
-    else if (elapsed < t2) {
-      phase = 'multiplying';
-      const p2 = Math.min(1.0, (elapsed - t1) / this.multiplyingDuration);
-      waveTracerProgress = 1.0;
-      currentCycles = this.fullCycles;
-      // Exponential ease-out counting up
-      currentScore = Math.round(this.targetScore * (0.15 + 0.85 * (1 - Math.pow(1 - p2, 2))));
-    }
-    // Phase 3: Impact & Celebration
+    // Phase 2: Impact & Celebration (starts immediately at the exact instant the tracer reaches the end)
     else {
-      const isSettled = elapsed >= t3;
+      const isSettled = elapsed >= t2;
       phase = isSettled ? 'settled' : 'celebrating';
       currentCycles = this.fullCycles;
       currentScore = this.targetScore;
       waveTracerProgress = 1.0;
 
-      const p3 = Math.min(1.0, (elapsed - t2) / this.celebratingDuration);
+      const p3 = Math.min(1.0, (elapsed - t1) / this.celebratingDuration);
 
       // Spawn celebratory particles once upon reaching impact
       if (!this.particlesSpawned) {

@@ -26,6 +26,9 @@ describe('CanvasView', () => {
       createLinearGradient: vi.fn(() => ({
         addColorStop: vi.fn(),
       })),
+      createRadialGradient: vi.fn(() => ({
+        addColorStop: vi.fn(),
+      })),
       strokeStyle: '',
       fillStyle: '',
       lineWidth: 1,
