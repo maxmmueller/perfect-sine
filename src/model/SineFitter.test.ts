@@ -203,4 +203,29 @@ describe('SineFitter (Mathematical Regression & Parameter Fitting)', () => {
     ];
     expect(SineFitter.fit(shortSpanPoints)).toBeNull();
   });
+
+  it('should accurately fit a slanted wave at ~25 degrees with 3 cycles and achieve high R2', () => {
+    const alpha = (25 * Math.PI) / 180;
+    const cos = Math.cos(alpha);
+    const sin = Math.sin(alpha);
+    const points: Point[] = [];
+    const L = 1000;
+    const A = 100;
+
+    for (let u = 0; u <= L; u += 4) {
+      const v = A * Math.sin((u / L) * 6 * Math.PI);
+      const x = 100 + u * cos - v * sin;
+      const y = 150 + u * sin + v * cos;
+      points.push({ x, y });
+    }
+
+    const fit = SineFitter.fit(points);
+    expect(fit).not.toBeNull();
+    if (!fit) return;
+
+    expect(fit.fullCycles).toBeGreaterThanOrEqual(2.8);
+    expect(fit.fullCycles).toBeLessThanOrEqual(3.2);
+    expect(fit.r2).toBeGreaterThanOrEqual(0.95);
+    expect(fit.tilt.angle).toBeCloseTo(alpha, 1);
+  });
 });

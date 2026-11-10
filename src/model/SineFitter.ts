@@ -109,24 +109,18 @@ export class SineFitter {
   }
 
   /**
-   * Fits a harmonic sine wave model f(u) = A * sin(omega * u + phi) + C to the given points.
-   * Uses Harmonic Linear Least Squares (Lomb-Scargle / OLS Closed Form) across human drawing frequencies,
-   * completely eliminating local-minima traps from peak-counting heuristics or gradient descent.
-   *
-   * @param rawPoints Sequence of sampled 2D points.
-   * @param precomputedTilt Optional pre-computed TiltResult.
-   * @returns FittedSine model parameters, or null if points are insufficient.
+   * Fits a harmonic sine wave model f(u) = A * sin(omega * u + phi) + C to the given points
+   * using a specific pre-defined coordinate tilt.
    */
-  public static fit(
+  public static fitWithTilt(
     rawPoints: readonly Point[],
-    precomputedTilt?: TiltResult
+    tilt: TiltResult
   ): FittedSine | null {
     if (!rawPoints || rawPoints.length < 8) {
       return null;
     }
 
-    // 1. Detect baseline tilt and transform points to horizontal frame
-    const tilt = precomputedTilt ?? TiltDetector.detectTilt(rawPoints);
+    // 1. Transform points to baseline-aligned frame
     const transformed = TiltDetector.transformPoints(rawPoints, tilt);
 
     // 2. Trim terminal liftoff hook in baseline coordinates
@@ -238,6 +232,50 @@ export class SineFitter {
       fullCycles,
       r2,
     };
+  }
+
+  /**
+   * Fits a harmonic sine wave model f(u) = A * sin(omega * u + phi) + C to the given points.
+   * Uses Harmonic Linear Least Squares (Lomb-Scargle / OLS Closed Form) across human drawing frequencies,
+   * completely eliminating local-minima traps from peak-counting heuristics or gradient descent.
+   *
+   * @param rawPoints Sequence of sampled 2D points.
+   * @param precomputedTilt Optional pre-computed TiltResult.
+   * @returns FittedSine model parameters, or null if points are insufficient.
+   */
+  public static fit(
+    rawPoints: readonly Point[],
+    precomputedTilt?: TiltResult
+  ): FittedSine | null {
+    if (!rawPoints || rawPoints.length < 8) {
+      return null;
+    }
+
+    if (precomputedTilt) {
+      return SineFitter.fitWithTilt(rawPoints, precomputedTilt);
+    }
+
+    const defaultTilt = TiltDetector.detectTilt(rawPoints);
+    const defaultFit = SineFitter.fitWithTilt(rawPoints, defaultTilt);
+
+    // For non-horizontal diagonal strokes, evaluate whether mass PCA baseline improves the harmonic fit
+    if (
+      defaultTilt.angle !== 0 &&
+      Math.abs(defaultTilt.angle) !== Math.PI &&
+      Math.abs(Math.abs(defaultTilt.angle) - Math.PI / 2) > 1e-4
+    ) {
+      const pcaTilt = TiltDetector.computePCATilt(rawPoints);
+      if (Math.abs(pcaTilt.angle - defaultTilt.angle) > (1.5 * Math.PI) / 180) {
+        const pcaFit = SineFitter.fitWithTilt(rawPoints, pcaTilt);
+        if (pcaFit && defaultFit) {
+          return pcaFit.r2 > defaultFit.r2 ? pcaFit : defaultFit;
+        } else if (pcaFit) {
+          return pcaFit;
+        }
+      }
+    }
+
+    return defaultFit;
   }
 
   /**
