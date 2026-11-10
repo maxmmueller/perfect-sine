@@ -12,24 +12,34 @@ export interface ScorerEvaluationItem {
   readonly evaluation: StrokeEvaluation;
 }
 
-export interface ScorerVoteSummary {
+export interface ScorerRankingSummary {
+  readonly totalRankings: number;
+  readonly bordaScore: Record<string, number>;
+  readonly averageRank: Record<string, number>;
+  readonly rankCounts: Record<string, number[]>; // [count1st, count2nd, count3rd, count4th, count5th]
+  readonly leadingStrategyId: string | null;
+
+  // Backward compatibility with ScorerVoteSummary
   readonly totalVotes: number;
   readonly votesPerStrategy: Record<string, number>;
   readonly percentages: Record<string, number>;
-  readonly leadingStrategyId: string | null;
 }
+
+export type ScorerVoteSummary = ScorerRankingSummary;
 
 /**
  * ScoreStrategyManager
  * Manages registry of pluggable scoring strategies, deterministic A/B/n multi-variant allocation,
- * simultaneous multi-strategy evaluation, and empirical user preference voting persistence.
+ * simultaneous multi-strategy evaluation, and empirical user preference ranking persistence (Borda Count).
  */
 export class ScoreStrategyManager {
   private static readonly STORAGE_KEY = 'perfect_sine_ab_scorer_votes_v1';
   private readonly strategies = new Map<string, IScoreStrategy>();
   private readonly storage: IStorageAdapter;
-  private readonly voteListeners = new Set<(summary: ScorerVoteSummary) => void>();
-  private votes: Record<string, number> = {};
+  private readonly voteListeners = new Set<(summary: ScorerRankingSummary) => void>();
+  private totalRankings: number = 0;
+  private rankCounts: Record<string, number[]> = {};
+  private userRankingOrder: string[] = [];
   private activeStrategyId: string;
 
   constructor(defaultStrategyId: string = 'rmse_l2', storageAdapter?: IStorageAdapter) {
@@ -46,6 +56,7 @@ export class ScoreStrategyManager {
       ? defaultStrategyId
       : 'rmse_l2';
 
+    this.userRankingOrder = this.getAllStrategies().map((s) => s.id);
     this.loadVotes();
   }
 
@@ -66,17 +77,45 @@ export class ScoreStrategyManager {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
-          this.votes = parsed;
+          if (parsed.rankCounts && typeof parsed.rankCounts === 'object') {
+            this.rankCounts = parsed.rankCounts;
+            this.totalRankings = parsed.totalRankings ?? 0;
+            if (Array.isArray(parsed.userOrder) && parsed.userOrder.length === this.strategies.size) {
+              this.userRankingOrder = parsed.userOrder;
+            }
+          } else {
+            // Legacy simple vote count migration: Record<string, number>
+            this.totalRankings = 0;
+            this.rankCounts = {};
+            for (const [k, v] of Object.entries(parsed)) {
+              if (typeof v === 'number' && this.strategies.has(k)) {
+                this.rankCounts[k] = [v, 0, 0, 0, 0];
+                this.totalRankings += v;
+              }
+            }
+          }
         }
       }
     } catch {
-      this.votes = {};
+      this.totalRankings = 0;
+      this.rankCounts = {};
+    }
+
+    if (this.userRankingOrder.length !== this.strategies.size) {
+      this.userRankingOrder = this.getAllStrategies().map((s) => s.id);
     }
   }
 
   private saveVotes(): void {
     try {
-      this.storage.setItem(ScoreStrategyManager.STORAGE_KEY, JSON.stringify(this.votes));
+      this.storage.setItem(
+        ScoreStrategyManager.STORAGE_KEY,
+        JSON.stringify({
+          totalRankings: this.totalRankings,
+          rankCounts: this.rankCounts,
+          userOrder: this.userRankingOrder,
+        })
+      );
     } catch {
       // quota or security error ignored gracefully
     }
@@ -106,6 +145,36 @@ export class ScoreStrategyManager {
     return false;
   }
 
+  public getUserRankingOrder(): readonly string[] {
+    return this.userRankingOrder;
+  }
+
+  public setUserRankingOrder(order: readonly string[]): void {
+    const valid = order.filter((id) => this.strategies.has(id));
+    if (valid.length === this.strategies.size) {
+      this.userRankingOrder = [...valid];
+      this.saveVotes();
+    }
+  }
+
+  public moveStrategyRank(fromIndex: number, toIndex: number): readonly string[] {
+    if (
+      fromIndex < 0 ||
+      fromIndex >= this.userRankingOrder.length ||
+      toIndex < 0 ||
+      toIndex >= this.userRankingOrder.length ||
+      fromIndex === toIndex
+    ) {
+      return this.userRankingOrder;
+    }
+    const newOrder = [...this.userRankingOrder];
+    const [moved] = newOrder.splice(fromIndex, 1);
+    newOrder.splice(toIndex, 0, moved);
+    this.userRankingOrder = newOrder;
+    this.saveVotes();
+    return this.userRankingOrder;
+  }
+
   /**
    * Evaluates a completed sine curve with ALL registered strategies simultaneously.
    * Enables immediate side-by-side comparative inspection for empirical A/B evaluation.
@@ -123,72 +192,131 @@ export class ScoreStrategyManager {
   }
 
   /**
+   * Records a complete user preference ranking (positions 1 through 5).
+   * Aggregates using Borda Count (Rank 1 = 5 pts, Rank 5 = 1 pt).
+   */
+  public recordRanking(rankedIds: readonly string[]): ScorerRankingSummary {
+    if (!rankedIds || rankedIds.length === 0) {
+      throw new Error('Cannot record empty ranking');
+    }
+    for (const id of rankedIds) {
+      if (!this.strategies.has(id)) {
+        throw new Error(`Cannot rank unknown strategy: ${id}`);
+      }
+    }
+
+    this.totalRankings++;
+
+    rankedIds.forEach((id, rankIndex) => {
+      if (!this.rankCounts[id]) {
+        this.rankCounts[id] = [0, 0, 0, 0, 0];
+      }
+      if (rankIndex < 5) {
+        this.rankCounts[id][rankIndex] = (this.rankCounts[id][rankIndex] ?? 0) + 1;
+      }
+    });
+
+    this.userRankingOrder = [...rankedIds];
+    this.saveVotes();
+    const summary = this.getRankingSummary();
+    this.notifyVoteListeners(summary);
+    return summary;
+  }
+
+  /**
    * Records a user preference vote for the designated scoring algorithm.
    */
   public recordVote(strategyId: string): ScorerVoteSummary {
     if (!this.strategies.has(strategyId)) {
       throw new Error(`Cannot vote for unknown strategy: ${strategyId}`);
     }
-    this.votes[strategyId] = (this.votes[strategyId] ?? 0) + 1;
-    this.saveVotes();
-    const summary = this.getVoteSummary();
-    this.notifyVoteListeners(summary);
-    return summary;
+    const otherStrategies = this.getAllStrategies()
+      .map((s) => s.id)
+      .filter((id) => id !== strategyId);
+    return this.recordRanking([strategyId, ...otherStrategies]);
   }
 
   /**
-   * Computes aggregate vote metrics, percentages, and identifies the currently leading strategy.
+   * Computes aggregate ranking metrics, Borda counts, average ranks, and identifies leading strategy.
    */
-  public getVoteSummary(): ScorerVoteSummary {
-    let totalVotes = 0;
+  public getRankingSummary(): ScorerRankingSummary {
+    const bordaScore: Record<string, number> = {};
+    const averageRank: Record<string, number> = {};
     const votesPerStrategy: Record<string, number> = {};
     const percentages: Record<string, number> = {};
 
-    for (const strategy of this.getAllStrategies()) {
-      const count = this.votes[strategy.id] ?? 0;
-      votesPerStrategy[strategy.id] = count;
-      totalVotes += count;
-    }
-
-    let maxVotes = 0;
+    let maxBorda = -1;
     let leadingStrategyId: string | null = null;
 
     for (const strategy of this.getAllStrategies()) {
-      const count = votesPerStrategy[strategy.id];
+      const counts = this.rankCounts[strategy.id] ?? [0, 0, 0, 0, 0];
+      const firstPlace = counts[0] ?? 0;
+      votesPerStrategy[strategy.id] = firstPlace;
+
+      let bScore = 0;
+      let rankSum = 0;
+      let totalStrategyRankings = 0;
+
+      for (let r = 0; r < 5; r++) {
+        const c = counts[r] ?? 0;
+        bScore += c * (5 - r);
+        rankSum += c * (r + 1);
+        totalStrategyRankings += c;
+      }
+
+      bordaScore[strategy.id] = bScore;
+      averageRank[strategy.id] =
+        totalStrategyRankings > 0
+          ? Math.round((rankSum / totalStrategyRankings) * 10) / 10
+          : 0;
+
       percentages[strategy.id] =
-        totalVotes > 0 ? Math.round((count / totalVotes) * 1000) / 10 : 0;
-      if (count > maxVotes) {
-        maxVotes = count;
+        this.totalRankings > 0
+          ? Math.round((firstPlace / this.totalRankings) * 1000) / 10
+          : 0;
+
+      if (bScore > maxBorda && this.totalRankings > 0) {
+        maxBorda = bScore;
         leadingStrategyId = strategy.id;
       }
     }
 
     return {
-      totalVotes,
+      totalRankings: this.totalRankings,
+      bordaScore,
+      averageRank,
+      rankCounts: this.rankCounts,
+      leadingStrategyId,
+      totalVotes: this.totalRankings,
       votesPerStrategy,
       percentages,
-      leadingStrategyId,
     };
   }
 
+  public getVoteSummary(): ScorerVoteSummary {
+    return this.getRankingSummary();
+  }
+
   public clearVotes(): void {
-    this.votes = {};
+    this.totalRankings = 0;
+    this.rankCounts = {};
+    this.userRankingOrder = this.getAllStrategies().map((s) => s.id);
     try {
       this.storage.removeItem(ScoreStrategyManager.STORAGE_KEY);
     } catch {
       // safe fallback
     }
-    this.notifyVoteListeners(this.getVoteSummary());
+    this.notifyVoteListeners(this.getRankingSummary());
   }
 
-  public subscribeVotes(listener: (summary: ScorerVoteSummary) => void): () => void {
+  public subscribeVotes(listener: (summary: ScorerRankingSummary) => void): () => void {
     this.voteListeners.add(listener);
     return () => {
       this.voteListeners.delete(listener);
     };
   }
 
-  private notifyVoteListeners(summary: ScorerVoteSummary): void {
+  private notifyVoteListeners(summary: ScorerRankingSummary): void {
     this.voteListeners.forEach((listener) => {
       try {
         listener(summary);

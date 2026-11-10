@@ -44,15 +44,15 @@
         <div class="ab-drawer-header">
           <div class="ab-drawer-title-group">
             <span class="ab-tag">A/B/n BENCHMARK</span>
-            <h3>Scorer Comparison</h3>
-            <p class="ab-subtitle">Which algorithm scores your wave most accurately? Tap <b>Vote as Best</b> to train the model.</p>
+            <h3>Scorer Ranking</h3>
+            <p class="ab-subtitle">Drag & Drop algorithms to rank them <b>#1 to #5</b>. Save your preference to train the model.</p>
           </div>
           <button id="ab-close-btn" class="ab-close-btn" aria-label="Close Benchmark Panel">✕</button>
         </div>
 
         <div class="ab-summary-strip">
           <span class="ab-strip-label">🏆 Leading Scorer:</span>
-          <span id="ab-leading-name" class="ab-strip-val">None yet (Vote below!)</span>
+          <span id="ab-leading-name" class="ab-strip-val">None yet (Rank below!)</span>
         </div>
 
         <div id="ab-scorer-list" class="ab-scorer-list">
@@ -60,7 +60,8 @@
         </div>
 
         <div class="ab-drawer-footer">
-          <button id="ab-clear-votes-btn" class="btn-secondary btn-sm">Reset Votes</button>
+          <button id="ab-save-ranking-btn" class="btn-primary btn-sm">Save Ranking (1-5)</button>
+          <button id="ab-clear-votes-btn" class="btn-secondary btn-sm">Reset</button>
         </div>
       </aside>
 
