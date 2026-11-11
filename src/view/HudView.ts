@@ -32,8 +32,6 @@ export class HudView {
   private statusTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Modal Stat Elements
-  private readonly personaTitleEl: HTMLElement | null;
-  private readonly personaSubtitleEl: HTMLElement | null;
   private readonly statHighscoreEl: HTMLElement | null;
   private readonly statAvgAccuracyEl: HTMLElement | null;
   private readonly statAttemptsEl: HTMLElement | null;
@@ -63,8 +61,6 @@ export class HudView {
     this.sharePreviewWrapEl = document.getElementById('modal-share-preview-wrap');
 
     // Cache Modal Stat Elements
-    this.personaTitleEl = document.getElementById('modal-persona-title');
-    this.personaSubtitleEl = document.getElementById('modal-persona-subtitle');
     this.statHighscoreEl = document.getElementById('stat-highscore');
     this.statAvgAccuracyEl = document.getElementById('stat-avg-accuracy');
     this.statAttemptsEl = document.getElementById('stat-attempts');
@@ -154,7 +150,7 @@ export class HudView {
     if (this.resetBtn) {
       this.resetBtn.addEventListener('click', () => {
         this.sessionService.clear();
-        this.setShareStatus('Session stats cleared.');
+        this.setShareStatus('Reset');
       });
     }
 
@@ -195,7 +191,7 @@ export class HudView {
       }
 
       if (HudView.isScreenshotShortcut(e) && !this.isModalOpen()) {
-        this.openModal('Share card ready from screenshot trigger.');
+        this.openModal();
         return;
       }
 
@@ -203,7 +199,7 @@ export class HudView {
         if (typeof e.preventDefault === 'function') {
           e.preventDefault();
         }
-        this.openModal('Share card ready.');
+        this.openModal();
       }
     });
 
@@ -211,14 +207,14 @@ export class HudView {
     window.addEventListener('keyup', (e) => {
       if (this.isEditableTarget(e.target)) return;
       if ((e.key === 'PrintScreen' || e.code === 'PrintScreen') && !this.isModalOpen()) {
-        this.openModal('Share card ready from PrintScreen.');
+        this.openModal();
       }
     });
 
     // Open share summary cleanly when user opens Print / Save-as-PDF
     window.addEventListener('beforeprint', () => {
       if (!this.isModalOpen()) {
-        this.openModal('Share card ready.');
+        this.openModal();
       }
     });
   }
@@ -304,14 +300,6 @@ export class HudView {
 
     if (this.highscoreEl) {
       this.highscoreEl.textContent = `${summary.highscore.toLocaleString()} pts`;
-    }
-
-    if (this.personaTitleEl) {
-      this.personaTitleEl.textContent = summary.persona.title;
-    }
-
-    if (this.personaSubtitleEl) {
-      this.personaSubtitleEl.textContent = summary.persona.subtitle;
     }
 
     if (this.statHighscoreEl) {

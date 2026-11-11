@@ -242,35 +242,11 @@ html, body {
   gap: 0.35rem;
 }
 
-.wrapped-tag {
-  align-self: flex-start;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 0.2rem 0.55rem;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #94a3b8;
-}
-
 .modal-header h2 {
   font-size: 1.45rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text-main);
-}
-
-.persona-title {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--color-cyan);
-}
-
-.persona-subtitle {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.4;
 }
 
 .stats-grid {

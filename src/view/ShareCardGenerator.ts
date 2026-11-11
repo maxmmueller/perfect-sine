@@ -35,11 +35,11 @@ interface RectBox {
 }
 
 const CARD_WIDTH = 960;
-const CARD_HEIGHT = 600;
-const PREVIEW_BOX: RectBox = { x: 36, y: 142, w: 516, h: 392 };
+const CARD_HEIGHT = 560;
+const PREVIEW_BOX: RectBox = { x: 36, y: 92, w: 516, h: 416 };
 
 /**
- * Generates shareable Wave Summary PNG cards and dispatches Web Share API,
+ * Generates shareable Perfect Sine PNG cards and dispatches Web Share API,
  * clipboard image/text copy, and PNG download fallbacks cleanly.
  */
 export class ShareCardGenerator {
@@ -53,8 +53,8 @@ export class ShareCardGenerator {
     const cleanUrl = url && url.trim().length > 0 ? url.trim() : '';
     const statsLine =
       summary.totalAttempts > 0
-        ? `Perfect Sine — Best: ${summary.highscore.toLocaleString()} pts | Avg Accuracy: ${summary.averageAccuracy}% | Persona: ${summary.persona.title}`
-        : 'Perfect Sine — Draw a mathematically pure sine wave freehand!';
+        ? `Perfect Sine — Personal Best: ${summary.highscore.toLocaleString()} pts | Avg Accuracy: ${summary.averageAccuracy}%`
+        : 'Perfect Sine';
 
     return cleanUrl ? `${statsLine}\n${cleanUrl}` : statsLine;
   }
@@ -184,7 +184,7 @@ export class ShareCardGenerator {
   ): Promise<ShareOutcome> {
     const url = snapshot?.url ?? (typeof window !== 'undefined' ? window.location.href : undefined);
     const text = this.buildShareText(summary, url);
-    const title = 'Perfect Sine — Wave Summary';
+    const title = 'Perfect Sine';
     const canvas = this.renderShareCard(summary, snapshot);
     const blob = await this.canvasToBlob(canvas);
 
@@ -270,52 +270,33 @@ export class ShareCardGenerator {
     summary: SessionSummary,
     snapshot?: ShareCardSnapshot
   ): void {
-    // Tag pill
     ctx.save();
-    this.drawRoundedRect(ctx, 36, 28, 224, 24, 6);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '700 11px Inter, system-ui, -apple-system, sans-serif';
-    ctx.fillText('PERFECT SINE • WAVE SUMMARY', 48, 44);
-
-    // Title + Persona
     ctx.fillStyle = '#f8fafc';
     ctx.font = '800 28px Inter, system-ui, -apple-system, sans-serif';
-    ctx.fillText('Wave Summary', 36, 84);
+    ctx.fillText('Perfect Sine', 36, 60);
 
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = '700 17px Inter, system-ui, -apple-system, sans-serif';
-    ctx.fillText(summary.persona.title, 36, 110);
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '500 13px Inter, system-ui, -apple-system, sans-serif';
-    ctx.fillText(this.truncate(summary.persona.subtitle, 68), 36, 128);
-
-    // Top-right badge: latest drawn score or highscore
+    // Optional top-right metric badge when numeric score exists
     const evalData = snapshot?.stroke?.evaluation;
     const badgeLabel = evalData
-      ? `LAST WAVE · ${evalData.accuracy.toFixed(1)}% (${evalData.score.toLocaleString()} pts)`
+      ? `Last · ${evalData.accuracy.toFixed(1)}% (${evalData.score.toLocaleString()} pts)`
       : summary.highscore > 0
-        ? `PERSONAL BEST · ${summary.highscore.toLocaleString()} pts`
-        : 'PURE MATH WAVE CHALLENGE';
+        ? `Personal Best · ${summary.highscore.toLocaleString()} pts`
+        : null;
 
-    ctx.font = '700 13px Inter, system-ui, -apple-system, sans-serif';
-    const badgeWidth = Math.min(340, ctx.measureText(badgeLabel).width + 32);
-    const badgeX = CARD_WIDTH - 36 - badgeWidth;
-    this.drawRoundedRect(ctx, badgeX, 34, badgeWidth, 34, 10);
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-    ctx.lineWidth = 1.25;
-    ctx.stroke();
+    if (badgeLabel) {
+      ctx.font = '700 13px Inter, system-ui, -apple-system, sans-serif';
+      const badgeWidth = Math.min(340, ctx.measureText(badgeLabel).width + 32);
+      const badgeX = CARD_WIDTH - 36 - badgeWidth;
+      this.drawRoundedRect(ctx, badgeX, 34, badgeWidth, 34, 10);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+      ctx.lineWidth = 1.25;
+      ctx.stroke();
 
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillText(badgeLabel, badgeX + 16, 56);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText(badgeLabel, badgeX + 16, 56);
+    }
     ctx.restore();
   }
 
@@ -502,7 +483,7 @@ export class ShareCardGenerator {
 
   private static drawStatsGrid(ctx: CanvasRenderingContext2D, summary: SessionSummary): void {
     const startX = 574;
-    const startY = 142;
+    const startY = 92;
     const gap = 14;
     const cardW = 168;
     const cardH = (PREVIEW_BOX.h - gap * 2) / 3;
@@ -542,15 +523,13 @@ export class ShareCardGenerator {
   }
 
   private static drawFooter(ctx: CanvasRenderingContext2D, url?: string): void {
+    if (!url) return;
     ctx.save();
-    ctx.fillStyle = '#64748b';
+    const displayUrl = this.formatDisplayUrl(url);
     ctx.font = '600 12px Inter, system-ui, -apple-system, sans-serif';
-    ctx.fillText('Draw a mathematically pure sine wave freehand', 36, 568);
-
-    const displayUrl = url ? this.formatDisplayUrl(url) : 'perfect-sine';
     const textWidth = ctx.measureText(displayUrl).width;
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(displayUrl, CARD_WIDTH - 36 - textWidth, 568);
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(displayUrl, CARD_WIDTH - 36 - textWidth, 536);
     ctx.restore();
   }
 
@@ -590,3 +569,4 @@ export class ShareCardGenerator {
     }
   }
 }
+
