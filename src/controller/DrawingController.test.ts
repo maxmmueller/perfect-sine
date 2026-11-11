@@ -453,6 +453,34 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       vi.unstubAllGlobals();
     });
 
+    it('should preserve active demo on screenshot/share/Escape/modifier keys while dismissing on other keys', () => {
+      const winListeners: Record<string, Array<(e: unknown) => void>> = {};
+      vi.stubGlobal('window', {
+        addEventListener: (ev: string, cb: (e: unknown) => void) => {
+          if (!winListeners[ev]) winListeners[ev] = [];
+          winListeners[ev].push(cb);
+        },
+        requestAnimationFrame: vi.fn(() => 1),
+        cancelAnimationFrame: vi.fn(),
+      });
+
+      const localController = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      localController.startDemo();
+      expect(localController.isDemoPlaying()).toBe(true);
+
+      const keyHandlers = winListeners['keydown'] || [];
+      keyHandlers.forEach((h) => h({ key: 's' }));
+      keyHandlers.forEach((h) => h({ key: 'PrintScreen', code: 'PrintScreen' }));
+      keyHandlers.forEach((h) => h({ key: 'Escape' }));
+      keyHandlers.forEach((h) => h({ key: 'Meta' }));
+      expect(localController.isDemoPlaying()).toBe(true);
+
+      keyHandlers.forEach((h) => h({ key: ' ' }));
+      expect(localController.isDemoPlaying()).toBe(false);
+
+      vi.unstubAllGlobals();
+    });
+
     it('should detect wave overlaps correctly using checkWavesOverlap', () => {
       const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
       const waveA = [
