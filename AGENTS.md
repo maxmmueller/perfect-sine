@@ -23,12 +23,31 @@ You are an expert Software Engineer AI Agent collaborating on the **Perfect Sine
 ## 2. Ground Truth & Essential References
 
 Before executing any task, you must consult and strictly align with the following specifications:
-1. **[SOFTWARE_ENGINEERING_GUIDE.md](./SOFTWARE_ENGINEERING_GUIDE.md)**:  
+1. **[Documentation Hub](./docs/README.md)** & **[Root README](./README.md)**:  
+   The centralized index and entry point for the live system architecture, algorithms, scripts, and tooling.
+2. **[Architecture & UML Diagrams](./docs/ARCHITECTURE.md)**:  
+   Authoritative MVC layer rules, Mermaid UML Class Diagrams, `GameStateMachine` State Diagram, and Stroke Evaluation Sequence Diagram.
+3. **[Mathematics, Scoring & Demo Bot](./docs/MATHEMATICS_AND_SCORING.md)**:  
+   PCA tilt detection, harmonic OLS sine fitting, zigzag/period anti-cheese rules, orthogonal deviation heatmaps, scoring strategies, and `DemoBot` kinematics.
+4. **[Development, Dev Isolation & Deployment](./docs/DEVELOPMENT_AND_DEPLOYMENT.md)**:  
+   `VITE_DEV_TOOLS` isolation, dev recorder/exporter tools, share card & screenshot triggers, Vitest coverage gates, and CI/CD workflows.
+5. **[SOFTWARE_ENGINEERING_GUIDE.md](./docs/SOFTWARE_ENGINEERING_GUIDE.md)**:  
    The definitive master guide for this project. Covers V-Model governance, $V = 0.7$ velocity planning, $C_1 \ge 80\%$ branch coverage, INVEST criteria, Fagan review rules, and MVC architecture.
-2. **[implementation.md](./implementation.md)**:  
-   The functional domain specification (game loop, drawing rules, sine fitting, gradient rendering, Spotify-Wrapped-style summary, and A/B scoring).
-3. **[GitHub Kanban Board](https://github.com/users/maxmmueller/projects/1)**:  
+6. **[implementation.md](./docs/implementation.md)**:  
+   Initial functional domain specification (historical reference).
+7. **[GitHub Kanban Board](https://github.com/users/maxmmueller/projects/1)**:  
    The single source of truth for operational work. All active work must map to an atomic Task card.
+
+### Living Documentation Mandate (Keep Docs & UML Up-to-Date)
+> [!IMPORTANT]
+> **Documentation MUST stay synchronized with code at all times.**  
+> Every pull request or commit that changes behavior, public APIs, classes, algorithms, thresholds, scripts, environment flags, UI triggers, or CI/CD workflows **must update the corresponding documentation in the same PR before merging**:
+> - **Class/interface, MVC boundary, state-machine, or event-flow changes** → Update the UML diagrams and text in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
+> - **Math fitting, period/zigzag validation, scoring formula, or `DemoBot` changes** → Update [`docs/MATHEMATICS_AND_SCORING.md`](./docs/MATHEMATICS_AND_SCORING.md).
+> - **Scripts, dev tools (`VITE_DEV_TOOLS`), share/screenshot triggers, tests, or GitHub Actions changes** → Update [`README.md`](./README.md) and [`docs/DEVELOPMENT_AND_DEPLOYMENT.md`](./docs/DEVELOPMENT_AND_DEPLOYMENT.md).
+> - **New or renamed documentation files** → Register them in the central index [`docs/README.md`](./docs/README.md).
+>
+> Never treat documentation updates as optional or defer them to a "later" cleanup PR. Stale UML diagrams, outdated formulas, or broken Markdown links fail Fagan review.
 
 ---
 
@@ -122,17 +141,18 @@ flowchart LR
   ```
 * Example: `feature/task-2.1-pca-tilt-detection`
 
-### Step 4: Implement with Clean Code & TDD
+### Step 4: Implement with Clean Code, TDD & Sync Documentation
 * Write unit tests alongside or before implementation logic.
 * Keep pull requests small and reviewable: **Target $\le 200$ lines of code (LOC)** of non-test logic per PR (Fagan inspection limit).
 * Maintain strict TypeScript types (no `any`, no unhandled promises).
+* **Update Project Documentation:** Immediately update affected sections and Mermaid UML diagrams in [`README.md`](./README.md), [`docs/README.md`](./docs/README.md), [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), [`docs/MATHEMATICS_AND_SCORING.md`](./docs/MATHEMATICS_AND_SCORING.md), and [`docs/DEVELOPMENT_AND_DEPLOYMENT.md`](./docs/DEVELOPMENT_AND_DEPLOYMENT.md) whenever code, APIs, math, or workflows change.
 
 ### Step 5: Execute Local Quality Checks
-Before committing, you must verify that all automated gates pass:
+Before committing, you must verify that all automated gates pass and no Markdown documentation links are broken:
 ```bash
-npm run lint          # Zero linter warnings/errors
-npx tsc --noEmit      # Zero TypeScript compilation errors
-npm test              # All unit tests pass with >= 80% C1 coverage
+npm run typecheck     # Zero TypeScript compilation errors
+npm run test:coverage # All unit tests pass with >= 80% coverage on src/model/**
+npm run build         # Production Vite bundle succeeds cleanly
 ```
 
 ### Step 6: Commit Following Conventional Commits
@@ -165,6 +185,7 @@ npm test              # All unit tests pass with >= 80% C1 coverage
 * ❌ **DO NOT** commit untested algorithms or bypass test failures with `@ts-ignore` or `test.skip`.
 * ❌ **DO NOT** write monolithic code that mixes canvas rendering with mathematical regressions in a single file. Respect the MVC boundary.
 * ❌ **DO NOT** modify the scope or acceptance criteria of a parent User Story unilaterally. If a story is too large ($> 15$ days), propose a vertical decomposition.
+* ❌ **DO NOT** leave project documentation stale after code or config changes. Changes to classes, MVC flows, math, scripts, or CI without matching updates to `README.md` / `docs/*.md` (and UML diagrams) are incomplete.
 * ❌ **DO NOT** push directly to `main`. All changes must pass through a feature branch, automated CI, and a Pull Request.
 
 ---
