@@ -21,7 +21,7 @@
             <span class="hud-label">BEST</span>
             <span class="hud-val" id="hud-highscore">0 pts</span>
           </div>
-          <button id="wrapped-btn" class="share-btn" aria-label="Share wave summary" title="Share Wave Summary">
+          <button id="wrapped-btn" class="share-btn" aria-label="Share wave summary" title="Share Wave Summary (Shortcut: S)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
               <polyline points="16 6 12 2 8 6"></polyline>
@@ -74,6 +74,28 @@
               <span id="stat-streak" class="stat-val">0</span>
             </div>
           </div>
+
+          <div class="share-preview-strip hidden" id="modal-share-preview-wrap">
+            <img id="modal-share-preview" class="share-preview-img" alt="Wave Summary Share Card Preview" />
+          </div>
+
+          <div class="share-actions-row">
+            <button id="modal-share-btn" class="btn-share-primary" title="Share wave card & stats">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                <polyline points="16 6 12 2 8 6"></polyline>
+                <line x1="12" y1="2" x2="12" y2="15"></line>
+              </svg>
+              <span>Share</span>
+            </button>
+            <button id="modal-screenshot-btn" class="btn-secondary btn-compact" title="Save Share Card as PNG image (Shortcut: S)">
+              Save PNG
+            </button>
+            <button id="modal-copy-btn" class="btn-secondary btn-compact" title="Copy Share Card or summary to clipboard">
+              Copy
+            </button>
+          </div>
+          <p id="modal-share-status" class="modal-share-status" aria-live="polite"></p>
 
           <div class="modal-actions">
             <button id="modal-resume-btn" class="btn-primary">Keep Drawing</button>

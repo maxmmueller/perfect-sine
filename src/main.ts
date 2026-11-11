@@ -14,7 +14,6 @@ function initializeApp(): void {
   }
 
   const sessionService = new SessionHistoryService();
-  const hudView = new HudView(sessionService);
   const finalStrategy = new UnifiedEnsembleScoreStrategy();
 
   const stateMachine = new GameStateMachine();
@@ -42,6 +41,14 @@ function initializeApp(): void {
           },
         }
       : {}),
+  });
+
+  const hudView = new HudView(sessionService, {
+    getWaveSnapshot: () => ({
+      stroke: controller.getLastDrawnStroke(),
+      sourceCanvas: canvas,
+      url: typeof window !== 'undefined' ? window.location.href : undefined,
+    }),
   });
 
   // Load Curve Recorder and debug hooks only in dev-tools-enabled builds

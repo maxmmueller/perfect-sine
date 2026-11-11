@@ -11,6 +11,7 @@ import { UnifiedEnsembleScoreStrategy } from '../model/scoring/UnifiedEnsembleSc
 import { ScoreStrategyManager, ScorerEvaluationItem } from '../model/scoring/ScoreStrategyManager';
 import { StrokeEvaluation, Point, PointDeviation } from '../model/types';
 import { ScoreCalculationAnimator } from '../view/ScoreCalculationAnimator';
+import { HudView } from '../view/HudView';
 
 export interface DemoHistoricalWave {
   readonly deviations: PointDeviation[];
@@ -101,8 +102,18 @@ export class DrawingController {
         this.view.handleResize();
         this.render();
       });
-      window.addEventListener('keydown', () => {
+      window.addEventListener('keydown', (e: KeyboardEvent) => {
         if (this.isDemoActive) {
+          const modifierOnly =
+            e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta';
+          if (
+            modifierOnly ||
+            e.key === 'Escape' ||
+            HudView.isScreenshotShortcut(e) ||
+            HudView.isInAppShareShortcut(e)
+          ) {
+            return;
+          }
           this.stopDemo();
           this.reset();
         }
