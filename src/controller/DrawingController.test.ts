@@ -663,33 +663,38 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       expect(controller.getLastDrawnStroke()).not.toBeNull();
     });
 
-    it('erases historical demo curves progressively from start to end via fadeWindow', () => {
+    it('erases historical demo curves continuously during both active drawing and inter-wave pauses', () => {
       let nowMs = 0;
       let nextRafId = 1;
-      const queuedCallbacks: Array<(ts: number) => void> = [];
+      const activeRafs = new Map<number, (ts: number) => void>();
 
       vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
       vi.stubGlobal('requestAnimationFrame', (cb: (ts: number) => void) => {
-        queuedCallbacks.push(cb);
-        return nextRafId++;
+        const id = nextRafId++;
+        activeRafs.set(id, cb);
+        return id;
       });
-      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+        activeRafs.delete(id);
+      });
       vi.stubGlobal('setTimeout', vi.fn(() => 999));
       vi.stubGlobal('clearTimeout', vi.fn());
 
       const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
 
-      const finishCurrentStroke = () => {
-        // Advance far beyond any possible demo duration so progress === 1.0
-        nowMs += 30000;
-        const cb = queuedCallbacks.shift();
-        expect(cb).toBeDefined();
-        cb!(nowMs);
+      const stepLatestRaf = (deltaMs: number) => {
+        nowMs += deltaMs;
+        const firstEntry = activeRafs.entries().next();
+        expect(firstEntry.done).toBe(false);
+        if (firstEntry.done) return;
+        const [id, cb] = firstEntry.value;
+        activeRafs.delete(id);
+        cb(nowMs);
       };
 
       try {
         controller.startDemo({ speedPxPerSec: 800, cycles: 1.5, wavelength: 200 });
-        finishCurrentStroke();
+        stepLatestRaf(3000);
 
         // Start Wave 2 preserving Wave 1 in history
         controller.startDemo({ speedPxPerSec: 800, cycles: 1.5, wavelength: 200 }, true);
@@ -697,15 +702,12 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
         expect(histAfterWave1.length).toBe(1);
         expect(histAfterWave1[0].eraseProgress).toBe(0);
 
-        // Advance Wave 2 halfway (~duration/2): check mid-erase and fadeWindow render call
+        // Advance Wave 2 mid-stroke: check continuous wipe progression and fadeWindow render args
         vi.mocked(mockView.renderEvaluatedStroke).mockClear();
-        const midCb = queuedCallbacks.shift();
-        expect(midCb).toBeDefined();
-        nowMs += 400;
-        midCb!(nowMs);
+        stepLatestRaf(350);
 
         expect(histAfterWave1[0].eraseProgress).toBeGreaterThan(0);
-        expect(histAfterWave1[0].eraseProgress).toBeLessThanOrEqual(0.56);
+        expect(histAfterWave1[0].eraseProgress).toBeLessThan(0.5);
 
         const histRenderCall = vi.mocked(mockView.renderEvaluatedStroke).mock.calls.find(
           (args) => args.length >= 4 && args[3] !== undefined
@@ -719,23 +721,25 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
           })
         );
 
-        // Finish Wave 2 and start Wave 3: Wave 1 continues toward complete erasure (1.0), Wave 2 starts at 0
-        nowMs += 30000;
-        const endWave2Cb = queuedCallbacks.shift();
-        endWave2Cb?.(nowMs);
-        controller.startDemo({ speedPxPerSec: 800, cycles: 1.5, wavelength: 200 }, true);
+        // Complete Wave 2 and enter the 600ms inter-wave pause: older Wave 1 MUST keep fading continuously!
+        stepLatestRaf(400);
+        const beforePauseErase = histAfterWave1[0].eraseProgress;
+        const beforePauseAlpha = histAfterWave1[0].alpha;
 
+        for (let step = 0; step < 5; step++) {
+          stepLatestRaf(100);
+        }
+
+        expect(histAfterWave1[0].eraseProgress).toBeGreaterThan(beforePauseErase);
+        expect(histAfterWave1[0].alpha).toBeLessThan(beforePauseAlpha);
+
+        // Starting Wave 3 cancels pause RAF cleanly and continues Wave 1 seamlessly alongside new Wave 2
+        const eraseAtWave3Start = histAfterWave1[0].eraseProgress;
+        controller.startDemo({ speedPxPerSec: 800, cycles: 1.5, wavelength: 200 }, true);
         const histAfterWave2 = controller.getDemoHistory();
         expect(histAfterWave2.length).toBe(2);
-        expect(histAfterWave2[0].fromErase).toBeCloseTo(0.56, 2);
-        expect(histAfterWave2[0].toErase).toBe(1.0);
-        expect(histAfterWave2[1].fromErase).toBe(0);
-
-        // Complete Wave 3 and start Wave 4: fully wiped Wave 1 (fromErase === 1.0) is retired cleanly
-        finishCurrentStroke();
-        controller.startDemo({ speedPxPerSec: 800, cycles: 1.5, wavelength: 200 }, true);
-        const histAfterWave3 = controller.getDemoHistory();
-        expect(histAfterWave3.every((h) => h.fromErase < 0.995)).toBe(true);
+        expect(histAfterWave2[0].eraseProgress).toBeCloseTo(eraseAtWave3Start, 5);
+        expect(histAfterWave2[1].eraseProgress).toBe(0);
       } finally {
         controller.stopDemo();
         vi.unstubAllGlobals();
@@ -745,7 +749,8 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
 
     it('places demo curves across varied center-weighted locations without visible overlap', () => {
       let nowMs = 0;
-      const queuedCallbacks: Array<(ts: number) => void> = [];
+      let nextRafId = 1;
+      const activeRafs = new Map<number, (ts: number) => void>();
 
       const desktopView = {
         ...mockView,
@@ -754,10 +759,13 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
 
       vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
       vi.stubGlobal('requestAnimationFrame', (cb: (ts: number) => void) => {
-        queuedCallbacks.push(cb);
-        return queuedCallbacks.length;
+        const id = nextRafId++;
+        activeRafs.set(id, cb);
+        return id;
       });
-      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+        activeRafs.delete(id);
+      });
       vi.stubGlobal('setTimeout', vi.fn(() => 999));
       vi.stubGlobal('clearTimeout', vi.fn());
 
@@ -769,10 +777,13 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
           controller.startDemo(undefined, wave > 0);
 
           // Advance stroke to completion so currentDemoDeviations populates active points
-          nowMs += 30000;
-          const drawCb = queuedCallbacks.shift();
-          expect(drawCb).toBeDefined();
-          drawCb!(nowMs);
+          nowMs += 3000;
+          const firstEntry = activeRafs.entries().next();
+          expect(firstEntry.done).toBe(false);
+          if (firstEntry.done) break;
+          const [id, drawCb] = firstEntry.value;
+          activeRafs.delete(id);
+          drawCb(nowMs);
 
           const activePoints = strokeBuffer.getPoints();
           expect(activePoints.length).toBeGreaterThan(20);
@@ -786,7 +797,7 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
             const visibleHistPoints = hist.deviations
               .filter((_, idx) =>
                 CanvasView.computePointFadeFactor(idx, hist.deviations.length, {
-                  eraseProgress: hist.fromErase,
+                  eraseProgress: hist.eraseProgress,
                   fadeSpan: 0.34,
                   arcProgress: hist.arcProgress,
                 }) > 0.04
