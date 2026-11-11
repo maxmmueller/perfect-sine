@@ -1,6 +1,15 @@
 import { Point, PointDeviation } from '../model/types';
 import { ScoreAnimationState, ScoreAnimationTier } from './ScoreCalculationAnimator';
 
+export interface StrokeFadeWindow {
+  /** Normalized wipe progress [0..1] traveling from first-drawn start (0) to end (1). */
+  readonly eraseProgress: number;
+  /** Width of the smooth gradient ramp along normalized arc length (default 0.34). */
+  readonly fadeSpan?: number;
+  /** Optional precomputed normalized cumulative arc-length [0..1] per point. */
+  readonly arcProgress?: readonly number[];
+}
+
 /**
  * CanvasView
  * Presentation layer responsible for HTML5 Canvas rendering, DPR scaling,
@@ -101,19 +110,53 @@ export class CanvasView {
   }
 
   /**
+   * Computes normalized progressive opacity multiplier [0..1] along stroke progression
+   * so the first-drawn start vanishes before the tail-drawn end.
+   */
+  public static computePointFadeFactor(
+    index: number,
+    totalPoints: number,
+    fadeWindow?: StrokeFadeWindow
+  ): number {
+    if (!fadeWindow || fadeWindow.eraseProgress <= 0) return 1.0;
+    if (fadeWindow.eraseProgress >= 1) return 0.0;
+
+    const fadeSpan = Math.max(0.08, fadeWindow.fadeSpan ?? 0.34);
+    const wipeFront = fadeWindow.eraseProgress * (1 + fadeSpan);
+    const wipeTail = wipeFront - fadeSpan;
+
+    const s =
+      fadeWindow.arcProgress && fadeWindow.arcProgress.length === totalPoints
+        ? fadeWindow.arcProgress[index]
+        : totalPoints > 1
+        ? index / (totalPoints - 1)
+        : 0;
+
+    if (s <= wipeTail) return 0.0;
+    if (s >= wipeFront) return 1.0;
+
+    const t = (s - wipeTail) / fadeSpan;
+    return t * t * (3 - 2 * t);
+  }
+
+  /**
    * Renders the evaluated stroke where segments dynamically transition color
    * based on orthogonal distance deviation (120° Green -> 60° Yellow -> 0° Red).
-   * Supports an optional alpha parameter for fading historical strokes.
-   * Clean ink transitions without blurry glow.
+   * Supports optional overall alpha and sequential head-to-tail progressive wipe fade.
    */
   public renderEvaluatedStroke(
     deviations: readonly PointDeviation[],
     lineWidth: number = 3.5,
-    alpha: number = 1.0
+    alpha: number = 1.0,
+    fadeWindow?: StrokeFadeWindow
   ): void {
-    if (deviations.length < 2) return;
+    const n = deviations.length;
+    if (n < 2) return;
     const safeAlpha = Math.max(0, Math.min(1, alpha));
     if (safeAlpha <= 0.005) return;
+    if (fadeWindow && fadeWindow.eraseProgress >= 1) return;
+
+    const hasSequentialFade = Boolean(fadeWindow && fadeWindow.eraseProgress > 0);
 
     this.ctx.save();
     this.ctx.globalAlpha = safeAlpha;
@@ -122,14 +165,30 @@ export class CanvasView {
     this.ctx.lineJoin = 'round';
     this.ctx.shadowBlur = 0;
 
-    // Draw round endcap at start
-    const first = deviations[0];
-    this.ctx.fillStyle = first.color;
-    this.ctx.beginPath();
-    this.ctx.arc(first.point.x, first.point.y, lineWidth / 2, 0, Math.PI * 2);
-    this.ctx.fill();
+    // Draw round endcap at start if start point is still visible
+    const startFactor = hasSequentialFade
+      ? CanvasView.computePointFadeFactor(0, n, fadeWindow)
+      : 1.0;
+    const startAlpha = safeAlpha * startFactor;
+    if (startAlpha > 0.005) {
+      const first = deviations[0];
+      if (hasSequentialFade) this.ctx.globalAlpha = startAlpha;
+      this.ctx.fillStyle = first.color;
+      this.ctx.beginPath();
+      this.ctx.arc(first.point.x, first.point.y, lineWidth / 2, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
 
-    for (let i = 0; i < deviations.length - 1; i++) {
+    for (let i = 0; i < n - 1; i++) {
+      let segAlpha = safeAlpha;
+      if (hasSequentialFade) {
+        const f1 = CanvasView.computePointFadeFactor(i, n, fadeWindow);
+        const f2 = CanvasView.computePointFadeFactor(i + 1, n, fadeWindow);
+        segAlpha = safeAlpha * ((f1 + f2) * 0.5);
+        if (segAlpha <= 0.005) continue;
+        this.ctx.globalAlpha = segAlpha;
+      }
+
       const d1 = deviations[i];
       const d2 = deviations[i + 1];
 
@@ -146,11 +205,18 @@ export class CanvasView {
     }
 
     // Draw round endcap at end
-    const last = deviations[deviations.length - 1];
-    this.ctx.fillStyle = last.color;
-    this.ctx.beginPath();
-    this.ctx.arc(last.point.x, last.point.y, lineWidth / 2, 0, Math.PI * 2);
-    this.ctx.fill();
+    const endFactor = hasSequentialFade
+      ? CanvasView.computePointFadeFactor(n - 1, n, fadeWindow)
+      : 1.0;
+    const endAlpha = safeAlpha * endFactor;
+    if (endAlpha > 0.005) {
+      const last = deviations[n - 1];
+      if (hasSequentialFade) this.ctx.globalAlpha = endAlpha;
+      this.ctx.fillStyle = last.color;
+      this.ctx.beginPath();
+      this.ctx.arc(last.point.x, last.point.y, lineWidth / 2, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
 
     this.ctx.restore();
   }

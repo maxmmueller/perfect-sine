@@ -662,5 +662,158 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
       expect(strokeBuffer.getLength()).toBe(points.length);
       expect(controller.getLastDrawnStroke()).not.toBeNull();
     });
+
+    it('erases historical demo curves progressively from start to end via fadeWindow', () => {
+      let nowMs = 0;
+      let nextRafId = 1;
+      const queuedCallbacks: Array<(ts: number) => void> = [];
+
+      vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
+      vi.stubGlobal('requestAnimationFrame', (cb: (ts: number) => void) => {
+        queuedCallbacks.push(cb);
+        return nextRafId++;
+      });
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      vi.stubGlobal('setTimeout', vi.fn(() => 999));
+      vi.stubGlobal('clearTimeout', vi.fn());
+
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+
+      const finishCurrentStroke = () => {
+        // Advance far beyond any possible demo duration so progress === 1.0
+        nowMs += 30000;
+        const cb = queuedCallbacks.shift();
+        expect(cb).toBeDefined();
+        cb!(nowMs);
+      };
+
+      try {
+        controller.startDemo({ speedPxPerSec: 800, cycles: 1.5, wavelength: 200 });
+        finishCurrentStroke();
+
+        // Start Wave 2 preserving Wave 1 in history
+        controller.startDemo({ speedPxPerSec: 800, cycles: 1.5, wavelength: 200 }, true);
+        const histAfterWave1 = controller.getDemoHistory();
+        expect(histAfterWave1.length).toBe(1);
+        expect(histAfterWave1[0].eraseProgress).toBe(0);
+
+        // Advance Wave 2 halfway (~duration/2): check mid-erase and fadeWindow render call
+        vi.mocked(mockView.renderEvaluatedStroke).mockClear();
+        const midCb = queuedCallbacks.shift();
+        expect(midCb).toBeDefined();
+        nowMs += 400;
+        midCb!(nowMs);
+
+        expect(histAfterWave1[0].eraseProgress).toBeGreaterThan(0);
+        expect(histAfterWave1[0].eraseProgress).toBeLessThanOrEqual(0.56);
+
+        const histRenderCall = vi.mocked(mockView.renderEvaluatedStroke).mock.calls.find(
+          (args) => args.length >= 4 && args[3] !== undefined
+        );
+        expect(histRenderCall).toBeDefined();
+        expect(histRenderCall![3]).toEqual(
+          expect.objectContaining({
+            eraseProgress: expect.any(Number),
+            fadeSpan: expect.any(Number),
+            arcProgress: expect.any(Array),
+          })
+        );
+
+        // Finish Wave 2 and start Wave 3: Wave 1 continues toward complete erasure (1.0), Wave 2 starts at 0
+        nowMs += 30000;
+        const endWave2Cb = queuedCallbacks.shift();
+        endWave2Cb?.(nowMs);
+        controller.startDemo({ speedPxPerSec: 800, cycles: 1.5, wavelength: 200 }, true);
+
+        const histAfterWave2 = controller.getDemoHistory();
+        expect(histAfterWave2.length).toBe(2);
+        expect(histAfterWave2[0].fromErase).toBeCloseTo(0.56, 2);
+        expect(histAfterWave2[0].toErase).toBe(1.0);
+        expect(histAfterWave2[1].fromErase).toBe(0);
+
+        // Complete Wave 3 and start Wave 4: fully wiped Wave 1 (fromErase === 1.0) is retired cleanly
+        finishCurrentStroke();
+        controller.startDemo({ speedPxPerSec: 800, cycles: 1.5, wavelength: 200 }, true);
+        const histAfterWave3 = controller.getDemoHistory();
+        expect(histAfterWave3.every((h) => h.fromErase < 0.995)).toBe(true);
+      } finally {
+        controller.stopDemo();
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('places demo curves across varied center-weighted locations without visible overlap', () => {
+      let nowMs = 0;
+      const queuedCallbacks: Array<(ts: number) => void> = [];
+
+      const desktopView = {
+        ...mockView,
+        getDimensions: () => ({ width: 1280, height: 800, dpr: 1 }),
+      } as unknown as CanvasView;
+
+      vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
+      vi.stubGlobal('requestAnimationFrame', (cb: (ts: number) => void) => {
+        queuedCallbacks.push(cb);
+        return queuedCallbacks.length;
+      });
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      vi.stubGlobal('setTimeout', vi.fn(() => 999));
+      vi.stubGlobal('clearTimeout', vi.fn());
+
+      const controller = new DrawingController(mockCanvas, desktopView, stateMachine, strokeBuffer);
+      const centroids: Array<{ x: number; y: number }> = [];
+
+      try {
+        for (let wave = 0; wave < 14; wave++) {
+          controller.startDemo(undefined, wave > 0);
+
+          // Advance stroke to completion so currentDemoDeviations populates active points
+          nowMs += 30000;
+          const drawCb = queuedCallbacks.shift();
+          expect(drawCb).toBeDefined();
+          drawCb!(nowMs);
+
+          const activePoints = strokeBuffer.getPoints();
+          expect(activePoints.length).toBeGreaterThan(20);
+
+          const meanX = activePoints.reduce((s, p) => s + p.x, 0) / activePoints.length;
+          const meanY = activePoints.reduce((s, p) => s + p.y, 0) / activePoints.length;
+          centroids.push({ x: meanX, y: meanY });
+
+          // Verify zero overlap between newly drawn curve and visible segments of every historical curve
+          for (const hist of controller.getDemoHistory()) {
+            const visibleHistPoints = hist.deviations
+              .filter((_, idx) =>
+                CanvasView.computePointFadeFactor(idx, hist.deviations.length, {
+                  eraseProgress: hist.fromErase,
+                  fadeSpan: 0.34,
+                  arcProgress: hist.arcProgress,
+                }) > 0.04
+              )
+              .map((d) => d.point);
+            if (visibleHistPoints.length >= 2) {
+              expect(controller.checkWavesOverlap(activePoints, visibleHistPoints, 28)).toBe(false);
+            }
+          }
+        }
+
+        const xs = centroids.map((c) => c.x);
+        const ys = centroids.map((c) => c.y);
+        const xSpread = Math.max(...xs) - Math.min(...xs);
+        const ySpread = Math.max(...ys) - Math.min(...ys);
+        expect(xSpread).toBeGreaterThan(60);
+        expect(ySpread).toBeGreaterThan(60);
+
+        const centralCount = centroids.filter(
+          (c) => c.x >= 1280 * 0.25 && c.x <= 1280 * 0.75 && c.y >= 800 * 0.22 && c.y <= 800 * 0.78
+        ).length;
+        expect(centralCount).toBeGreaterThanOrEqual(7);
+      } finally {
+        controller.stopDemo();
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+      }
+    });
   });
 });
