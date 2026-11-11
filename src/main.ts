@@ -5,8 +5,7 @@ import { DrawingController } from './controller/DrawingController';
 import { SessionHistoryService } from './model/SessionHistoryService';
 import { HudView } from './view/HudView';
 import { UnifiedEnsembleScoreStrategy } from './model/scoring/UnifiedEnsembleScoreStrategy';
-import { CurveRecorderService } from './model/CurveRecorderService';
-import { CurveRecorderView } from './view/CurveRecorderView';
+import type { DevStrokePayload } from './dev/setupDevTools';
 
 function initializeApp(): void {
   const canvas = document.getElementById('sine-canvas') as HTMLCanvasElement;
@@ -17,11 +16,12 @@ function initializeApp(): void {
   const sessionService = new SessionHistoryService();
   const hudView = new HudView(sessionService);
   const finalStrategy = new UnifiedEnsembleScoreStrategy();
-  const recorderService = new CurveRecorderService();
 
   const stateMachine = new GameStateMachine();
   const strokeBuffer = new StrokeBuffer(2.0);
   const view = new CanvasView(canvas);
+
+  let devStrokeHandler: ((stroke: DevStrokePayload) => void) | null = null;
 
   const controller = new DrawingController(canvas, view, stateMachine, strokeBuffer, {
     scoreStrategy: finalStrategy,
@@ -35,39 +35,32 @@ function initializeApp(): void {
         strategyId: finalStrategy.id,
       });
     },
-    onStrokeComplete: (stroke) => {
-      if (recorderService.isAutoRecordEnabled() && stroke.points.length >= 2) {
-        recorderService.addCurve({
-          points: stroke.points,
-          evaluation: stroke.evaluation,
-          validationMessage: stroke.validationMessage,
+    ...(import.meta.env.VITE_DEV_TOOLS === 'true'
+      ? {
+          onStrokeComplete: (stroke: DevStrokePayload) => {
+            devStrokeHandler?.(stroke);
+          },
+        }
+      : {}),
+  });
+
+  // Load Curve Recorder and debug hooks only in dev-tools-enabled builds
+  if (import.meta.env.VITE_DEV_TOOLS === 'true') {
+    void import('./dev/setupDevTools')
+      .then(({ setupDevTools }) => {
+        const devTools = setupDevTools({
+          controller,
+          stateMachine,
+          strokeBuffer,
+          sessionService,
+          hudView,
         });
-      }
-    },
-  });
-
-  const recorderView = new CurveRecorderView(recorderService, {
-    onReplayRequested: (points) => {
-      controller.replayStroke(points, true);
-    },
-    onRecordCurrentRequested: () => {
-      return controller.getLastDrawnStroke();
-    },
-  });
-
-  // Debug log state transitions
-  stateMachine.subscribe((next, old) => {
-    console.log(`[GameStateMachine] ${old} -> ${next} (Points: ${strokeBuffer.getLength()})`);
-  });
-
-  // Expose controller & services for test hooks if needed
-  (window as unknown as { __perfectSine?: unknown }).__perfectSine = {
-    controller,
-    sessionService,
-    hudView,
-    recorderService,
-    recorderView,
-  };
+        devStrokeHandler = devTools.onStrokeComplete;
+      })
+      .catch((err) => {
+        console.error('[DevTools] Failed to load dev tools:', err);
+      });
+  }
 
   // Start demo mode immediately on launch (user requirement)
   controller.startDemo();
