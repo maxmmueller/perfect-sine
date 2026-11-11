@@ -61,8 +61,6 @@ describe('HudView (HUD Overlay & Spotify-Wrapped Modal - Tasks 6.2 & 6.3)', () =
       'wrapped-btn',
       'wrapped-modal',
       'modal-close-x',
-      'modal-persona-title',
-      'modal-persona-subtitle',
       'stat-highscore',
       'stat-avg-accuracy',
       'stat-attempts',
@@ -202,7 +200,7 @@ describe('HudView (HUD Overlay & Spotify-Wrapped Modal - Tasks 6.2 & 6.3)', () =
     // PrintScreen on keydown
     keydownHandlers.forEach((h) => h({ key: 'PrintScreen', code: 'PrintScreen' }));
     expect(hudView.isModalOpen()).toBe(true);
-    expect(elementMap.get('modal-share-status')!.textContent).toContain('screenshot trigger');
+    expect(elementMap.get('modal-share-status')!.textContent).toBe('');
     hudView.closeModal();
 
     // PrintScreen on keyup

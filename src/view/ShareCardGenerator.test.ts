@@ -135,16 +135,17 @@ describe('ShareCardGenerator', () => {
     vi.unstubAllGlobals();
   });
 
-  it('builds formatted share text for active and empty sessions', () => {
+  it('builds formatted share text with game name and metrics only (no persona fluff)', () => {
     const activeText = ShareCardGenerator.buildShareText(sampleSummary, 'https://example.com/sine');
+    expect(activeText).toContain('Perfect Sine');
     expect(activeText).toContain('1,840 pts');
     expect(activeText).toContain('92.4%');
-    expect(activeText).toContain('Laser Harmonic Synthesizer');
+    expect(activeText).not.toContain('Laser Harmonic Synthesizer');
+    expect(activeText).not.toContain('Persona:');
     expect(activeText).toContain('https://example.com/sine');
 
     const emptyText = ShareCardGenerator.buildShareText(emptySummary);
-    expect(emptyText).toContain('Draw a mathematically pure sine wave');
-    expect(emptyText).not.toContain('undefined');
+    expect(emptyText).toBe('Perfect Sine');
   });
 
   it('renders share card with evaluated stroke, reference wave, and all stats', () => {
@@ -163,9 +164,10 @@ describe('ShareCardGenerator', () => {
     expect(canvas.width).toBe(ShareCardGenerator.WIDTH);
     expect(canvas.height).toBe(ShareCardGenerator.HEIGHT);
     expect(mockContext.setLineDash).toHaveBeenCalledWith([6, 6]);
-    expect(mockContext.fillText).toHaveBeenCalledWith('Wave Summary', 36, 84);
+    expect(mockContext.fillText).toHaveBeenCalledWith('Perfect Sine', 36, 60);
+    expect(mockContext.fillText).not.toHaveBeenCalledWith('Wave Summary', expect.any(Number), expect.any(Number));
     expect(mockContext.fillText).toHaveBeenCalledWith(
-      'LAST WAVE · 94.6% (1,840 pts)',
+      'Last · 94.6% (1,840 pts)',
       expect.any(Number),
       56
     );
@@ -256,7 +258,7 @@ describe('ShareCardGenerator', () => {
     expect(outcome.status).toBe('shared');
     expect(shareMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Perfect Sine — Wave Summary',
+        title: 'Perfect Sine',
         url: 'https://example.com',
         files: expect.any(Array),
       })
@@ -302,3 +304,4 @@ describe('ShareCardGenerator', () => {
     expect(mockLink.click).toHaveBeenCalledTimes(1);
   });
 });
+
