@@ -28,82 +28,12 @@
               <line x1="12" y1="2" x2="12" y2="15"></line>
             </svg>
           </button>
-          <button id="record-panel-btn" class="record-btn" aria-label="Record human curves" title="Record Human Curves & Examples">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <circle cx="12" cy="12" r="4" fill="currentColor"></circle>
-            </svg>
-            <span id="record-badge" class="record-count-badge" style="display: none;">0</span>
-          </button>
         </div>
       </header>
 
       <main class="canvas-container">
         <canvas id="sine-canvas"></canvas>
       </main>
-
-      <!-- A/B Scorer Benchmark Comparison Drawer -->
-      <aside id="ab-panel" class="ab-drawer hidden" role="region" aria-label="Scorer A/B Benchmark">
-        <div class="ab-drawer-header">
-          <div class="ab-drawer-title-group">
-            <span class="ab-tag">A/B/n BENCHMARK</span>
-            <h3>Scorer Ranking</h3>
-            <p class="ab-subtitle">Drag & Drop algorithms to rank them <b>#1 to #5</b>. Save your preference to train the model.</p>
-          </div>
-          <button id="ab-close-btn" class="ab-close-btn" aria-label="Close Benchmark Panel">✕</button>
-        </div>
-
-        <div class="ab-summary-strip">
-          <span class="ab-strip-label">🏆 Leading Scorer:</span>
-          <span id="ab-leading-name" class="ab-strip-val">None yet (Rank below!)</span>
-        </div>
-
-        <div id="ab-scorer-list" class="ab-scorer-list">
-          <!-- Dynamically populated with all 5 algorithms -->
-        </div>
-
-        <div class="ab-drawer-footer">
-          <button id="ab-save-ranking-btn" class="btn-primary btn-sm">Save Ranking (1-5)</button>
-          <button id="ab-clear-votes-btn" class="btn-secondary btn-sm">Reset</button>
-        </div>
-      </aside>
-
-      <!-- Human Curve Recorder & Gallery Drawer -->
-      <aside id="recorder-panel" class="recorder-drawer hidden" role="region" aria-label="Human Curve Recorder">
-        <div class="recorder-drawer-header">
-          <div class="recorder-title-group">
-            <span class="recorder-tag">DATASET CAPTURE</span>
-            <h3>Curve Recorder</h3>
-            <p class="recorder-subtitle">Record your hand-drawn curves as reference dataset & export standalone example images.</p>
-          </div>
-          <button id="recorder-close-btn" class="recorder-close-btn" aria-label="Close Recorder">✕</button>
-        </div>
-
-        <div class="recorder-controls-strip">
-          <button id="record-current-btn" class="btn-primary btn-sm">⏺ Record Last Stroke</button>
-          <label class="recorder-toggle-label" title="Automatically record every curve you draw">
-            <input type="checkbox" id="recorder-autorecord-toggle" checked />
-            <span class="toggle-slider"></span>
-            <span>Auto-Record</span>
-          </label>
-        </div>
-
-        <div class="recorder-actions-bar">
-          <button id="recorder-copy-ai-btn" class="btn-secondary btn-sm" title="Copy formatted JSON of all curves for AI / Antigravity">📋 Copy for AI</button>
-          <button id="recorder-export-json-btn" class="btn-secondary btn-sm" title="Download all curves as JSON file">💾 Export JSON</button>
-          <button id="recorder-import-json-btn" class="btn-secondary btn-sm" title="Import curves from JSON">📥 Import</button>
-          <button id="recorder-clear-btn" class="btn-secondary btn-sm btn-danger-subtle" title="Clear recorded list">🗑 Clear</button>
-        </div>
-
-        <div class="recorder-summary-strip">
-          <span class="recorder-strip-label">📁 Recorded Curves:</span>
-          <span id="recorder-count" class="recorder-strip-val">0 curves</span>
-        </div>
-
-        <div id="recorder-curve-list" class="recorder-curve-list">
-          <!-- Dynamically populated cards -->
-        </div>
-      </aside>
 
       <!-- Spotify-Wrapped-Style Summary Modal -->
       <div id="wrapped-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
