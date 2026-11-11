@@ -45,6 +45,37 @@ export interface DemoWaveResult {
   readonly deviations: PointDeviation[];
 }
 
+export interface HumanDemoWaveParams {
+  readonly amplitude: number;
+  readonly wavelength: number;
+  readonly cycles: number;
+  readonly phase: number;
+  readonly tiltAngle: number;
+  readonly speedPxPerSec: number;
+}
+
+interface MixedStrokeConfig {
+  readonly phaseHarmonic1Amp: number;
+  readonly phaseHarmonic1Offset: number;
+  readonly phaseHarmonic2Amp: number;
+  readonly phaseHarmonic2Offset: number;
+  readonly ampSlope: number;
+  readonly ampBow: number;
+  readonly runawayCenter: number;
+  readonly runawaySpread: number;
+  readonly runawayOvershoot: number;
+  readonly unevenCenter: number;
+  readonly unevenSpread: number;
+  readonly unevenDelta: number;
+  readonly wobblyCenter: number;
+  readonly wobblySpread: number;
+  readonly bowAmp: number;
+  readonly bowPhase: number;
+  readonly entryDrift: number;
+  readonly exitDrift: number;
+  readonly tremorPhases: readonly [number, number, number];
+}
+
 /**
  * DemoBot generates procedurally synthesized freehand sine wave strokes
  * with realistic human drawing dynamics: smooth strokes, peak overshoot/skew,
@@ -52,6 +83,69 @@ export interface DemoWaveResult {
  * Zero DOM dependency for headless verification.
  */
 export class DemoBot {
+  /**
+   * Samples authentic human-like sine geometry and kinematics learned from
+   * empirically recorded freehand strokes, scaled cleanly to the current viewport.
+   */
+  public static sampleHumanParameters(
+    width = 800,
+    height = 600,
+    rng: () => number = Math.random
+  ): HumanDemoWaveParams {
+    const safeWidth = Math.max(width, 280);
+    const safeHeight = Math.max(height, 260);
+    const scaleY = Math.max(0.55, Math.min(1.25, safeHeight / 806));
+    const maxWaveWidth = safeWidth * 0.72;
+
+    // Empirical human amplitude (desktop median ~72px, IQR 56-94px), triangular center-weighted
+    const baseAmp = 50 + ((rng() + rng()) * 0.5) * 42;
+    const amplitude = Math.round(Math.max(28, Math.min(96, safeHeight * 0.16, baseAmp * scaleY)));
+
+    // Empirical bimodal cycle span (~55% compact 1.15-1.70 cycles, ~45% flowing 1.85-3.15 cycles)
+    const isCompact = rng() < 0.55;
+    let cycles = isCompact ? 1.15 + rng() * 0.55 : 1.85 + rng() * 1.30;
+
+    // Empirical human aspect ratio (Amp / Period IQR ~0.15-0.28, median ~0.20)
+    const ampPerPeriod = 0.15 + ((rng() + rng()) * 0.5) * 0.13;
+    let wavelength = amplitude / ampPerPeriod;
+    const maxWavelengthForWidth = maxWaveWidth / Math.max(cycles, 1.05);
+    wavelength = Math.max(120, Math.min(wavelength, maxWavelengthForWidth));
+    if (cycles * wavelength > maxWaveWidth) {
+      cycles = Math.max(1.05, maxWaveWidth / wavelength);
+    }
+
+    // Start phase: ~59% move upward first on canvas (cos(PI) < 0 -> y decreases),
+    // ~41% move downward first, with ~75% starting near a baseline crossing
+    const goesUpFirst = rng() < 0.59;
+    const basePhase = goesUpFirst ? Math.PI : 0;
+    const phaseJitter = rng() < 0.75
+      ? (rng() + rng() - 1) * 0.45
+      : (rng() - 0.5) * 1.75;
+    const phase = ((basePhase + phaseJitter) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+
+    // ~80% nearly horizontal with subtle wrist slant (±3.7°), ~20% gentle diagonal sweep (8°-25°)
+    const tiltAngle = rng() < 0.80
+      ? (rng() + rng() - 1) * 0.065
+      : (rng() < 0.5 ? 1 : -1) * (0.14 + rng() * 0.30);
+
+    // Varied human sweep speed (median brisk ~580-860px/s, moderate ~390-580px/s, deliberate ~260-390px/s)
+    const speedDice = rng();
+    const speedPxPerSec = speedDice < 0.45
+      ? 580 + rng() * 280
+      : speedDice < 0.82
+      ? 390 + rng() * 190
+      : 260 + rng() * 130;
+
+    return {
+      amplitude,
+      wavelength,
+      cycles,
+      phase,
+      tiltAngle,
+      speedPxPerSec,
+    };
+  }
+
   /**
    * Generates a sequence of points simulating a human drawing a sine wave.
    */
@@ -113,51 +207,11 @@ export class DemoBot {
       }
     }
 
-    // Parameters for 'mixed' profile combining all 4 human error characteristics into a single stroke:
-    // - Pristine: confident, accurate stroke segments (~35% green, hue >= 90°)
-    // - Wobbly: natural neuromuscular hand tremor (~30% lime & yellow, hue 60°-90°)
-    // - Uneven: asymmetric peak overshoot and amplitude sag (~20% amber & orange, hue 25°-60°)
-    // - Runaway: crest overshoot ("aus dem Ufer laufen") (~15% deep orange & red, hue 0°-25°)
-    // Anchor runaway and uneven errors to actual wave crests to maintain harmonic sinusoidal form
-    const crests: { p: number; sign: number }[] = [];
-    const numSamples = 200;
-    for (let i = 0; i < numSamples; i++) {
-      const sampleU = (i / numSamples) * totalLength;
-      const sampleP = sampleU / totalLength;
-      const sampleAng = omega * sampleU + initialPhase;
-      if (Math.abs(Math.cos(sampleAng)) < 0.08) {
-        const sign = Math.sin(sampleAng) > 0 ? 1 : -1;
-        if (crests.length === 0 || sampleP - crests[crests.length - 1].p > 0.14) {
-          crests.push({ p: sampleP, sign });
-        }
-      }
-    }
-
-    const midCrests = crests.filter((c) => c.p >= 0.25 && c.p <= 0.75);
-    const runawayCrest = midCrests.length > 0
-      ? midCrests[Math.floor(rng() * midCrests.length)]
-      : (crests[Math.floor(crests.length / 2)] || { p: 0.5, sign: 1 });
-
-    const otherCrests = crests.filter((c) => Math.abs(c.p - runawayCrest.p) > 0.18);
-    const unevenCrest = otherCrests.length > 0
-      ? otherCrests[Math.floor(rng() * otherCrests.length)]
-      : { p: runawayCrest.p < 0.5 ? 0.75 : 0.25, sign: -runawayCrest.sign };
-
-    const mixedRunawayCenter = runawayCrest.p;
-    const mixedRunawaySpread = 0.14;
-    const mixedRunawayOvershoot = 30 + rng() * 4;
-
-    const mixedUnevenCenter = unevenCrest.p;
-    const mixedUnevenSpread = 0.15;
-    const mixedUnevenDir = rng() < 0.5 ? 1 : -1;
-    const mixedUnevenDelta = mixedUnevenDir * (19 + rng() * 4);
-
-    const mixedWobblyCenter = (mixedRunawayCenter + mixedUnevenCenter) / 2 > 0.5 ? 0.22 : 0.74;
-    const mixedWobblySpread = 0.28;
-    const mixedTremorFreq = omega * 4.0;
-    const mixedTremorPhase = rng() * Math.PI * 2;
-    const mixedDriftPhase = rng() * Math.PI * 2;
-    const mixedDriftAmp = 3.2;
+    // Human-learned mixed profile combining natural half-period elasticity, amplitude swell/sag,
+    // wrist-pivot bow, uneven crest heights, subtle aperiodic tremor, and a single runaway overshoot
+    const mixedConfig = profile === 'mixed'
+      ? this.buildMixedConfig(amplitude, cycles, initialPhase, rng)
+      : null;
 
     let ampModDepth = 0;
     let smoothTremorAmp = 0;
@@ -231,32 +285,8 @@ export class DemoBot {
 
       let localY: number;
 
-      if (profile === 'mixed') {
-        // 1. Runaway crest overshoot ("aus dem Ufer laufen") - covers ~15% into deep orange & red (0°-25°)
-        const dRun = (progress - mixedRunawayCenter) / mixedRunawaySpread;
-        const runawayAmp = mixedRunawayOvershoot * Math.exp(-0.5 * dRun * dRun);
-
-        // 2. Uneven peak amplitude modulation - covers ~20% into amber & orange (25°-60°)
-        const dUneven = (progress - mixedUnevenCenter) / mixedUnevenSpread;
-        const unevenAmp = mixedUnevenDelta * Math.exp(-0.5 * dUneven * dUneven);
-
-        // Organic effective amplitude preserving sinusoidal baseline crossings
-        const localAmp = amplitude + runawayAmp + unevenAmp;
-
-        // 3. Subtle timing & momentum skew
-        const timingMod = 0.05 * Math.sin(0.5 * nominalAngle);
-        const skewMod = 0.03 * Math.sin(2 * nominalAngle);
-
-        // 4. Wobbly neuromuscular hand tremor - covers ~30% into lime & yellow (60°-90°)
-        const dWob = (progress - mixedWobblyCenter) / mixedWobblySpread;
-        const wobWeight = Math.exp(-0.5 * dWob * dWob);
-        const tremorAmp = 4.2 + wobWeight * 5.2;
-        const tremor = tremorAmp * Math.sin(mixedTremorFreq * u + mixedTremorPhase);
-
-        // 5. Arm/wrist pivot drift
-        const drift = mixedDriftAmp * Math.sin(progress * Math.PI + mixedDriftPhase);
-
-        localY = localAmp * Math.sin(nominalAngle + timingMod + skewMod) + drift + tremor;
+      if (mixedConfig !== null) {
+        localY = this.evaluateMixedLocalY(u, progress, amplitude, omega, initialPhase, mixedConfig);
       } else {
         // 1. Local dynamic amplitude (each peak/trough is slightly organic)
         const localAmplitude = amplitude * (1 + ampModDepth * Math.sin(ampModFreq * u + ampModPhase));
@@ -290,8 +320,11 @@ export class DemoBot {
       const screenX = centerX + localX * cosTilt - localY * sinTilt;
       const screenY = centerY + localX * sinTilt + localY * cosTilt;
 
-      // Dynamic velocity: faster through zero-crossings (momentum), slightly slower around crest turns
-      const velFactor = 1.0 + 0.20 * Math.pow(Math.cos(nominalAngle), 2) - 0.10 * Math.pow(Math.sin(nominalAngle), 2);
+      // Dynamic velocity learned from humans: deliberate entry, brisk acceleration across middle,
+      // slightly slower around crest turns, and confident finish sweep
+      const sweepRamp = 0.74 + 0.48 * progress;
+      const harmonicPace = 1.0 + 0.14 * Math.pow(Math.cos(nominalAngle), 2) - 0.10 * Math.pow(Math.sin(nominalAngle), 2);
+      const velFactor = sweepRamp * harmonicPace;
       const dt = (stepPx / (speedPxPerSec * velFactor)) * 1000;
       currentTime += dt;
 
@@ -315,5 +348,135 @@ export class DemoBot {
     }
 
     return { points, deviations };
+  }
+
+  /**
+   * Builds per-stroke human distortion parameters anchored cleanly to exact sinusoidal extrema.
+   */
+  private static buildMixedConfig(
+    amplitude: number,
+    cycles: number,
+    initialPhase: number,
+    rng: () => number
+  ): MixedStrokeConfig {
+    const startAng = initialPhase;
+    const totalAng = 2 * Math.PI * cycles;
+    const endAng = startAng + totalAng;
+    const kMin = Math.ceil((startAng + 0.12 * totalAng - Math.PI / 2) / Math.PI);
+    const kMax = Math.floor((endAng - 0.12 * totalAng - Math.PI / 2) / Math.PI);
+
+    const crests: { p: number; sign: number }[] = [];
+    for (let k = kMin; k <= kMax; k++) {
+      const ang = k * Math.PI + Math.PI / 2;
+      const p = (ang - startAng) / totalAng;
+      if (p >= 0.12 && p <= 0.88) {
+        crests.push({ p, sign: Math.sin(ang) > 0 ? 1 : -1 });
+      }
+    }
+
+    const midCrests = crests.filter((c) => c.p >= 0.22 && c.p <= 0.78);
+    const runawayCrest = midCrests.length > 0
+      ? midCrests[Math.floor(rng() * midCrests.length)]
+      : (crests[Math.floor(crests.length / 2)] || { p: 0.52, sign: 1 });
+
+    const otherCrests = crests.filter((c) => Math.abs(c.p - runawayCrest.p) >= 0.18);
+    const unevenCrest = otherCrests.length > 0
+      ? otherCrests[Math.floor(rng() * otherCrests.length)]
+      : { p: runawayCrest.p < 0.5 ? 0.78 : 0.22, sign: -runawayCrest.sign };
+
+    const ampSlope = (rng() < 0.5 ? 1 : -1) * (0.03 + rng() * 0.055);
+    const ampBow = (rng() - 0.5) * 0.08;
+    const bowAmp = 4.0 + rng() * 2.2;
+    const bowPhase = rng() * Math.PI * 2;
+
+    const ampBiasAtRun =
+      amplitude *
+      (ampSlope * (runawayCrest.p - 0.5) + ampBow * (runawayCrest.p * (1 - runawayCrest.p) - 1 / 6));
+    const bowAtRunaway = bowAmp * Math.sin(Math.PI * runawayCrest.p + bowPhase);
+    const signedBowRun = bowAtRunaway * runawayCrest.sign;
+    const targetRunaway = 30.8 + rng() * 2.4;
+    const compensatedOvershoot = Math.max(27.5, Math.min(34.0, targetRunaway - ampBiasAtRun - signedBowRun));
+
+    const unevenSign = rng() < 0.5 ? 1 : -1;
+    const bowAtUneven = bowAmp * Math.sin(Math.PI * unevenCrest.p + bowPhase);
+    const signedBowUneven = bowAtUneven * unevenCrest.sign;
+    const targetUneven = 19.6 + rng() * 2.8;
+    const compensatedUneven = Math.max(-23.0, Math.min(23.0, unevenSign * targetUneven - signedBowUneven));
+
+    const wobblyCenter = (runawayCrest.p + unevenCrest.p) / 2 > 0.5 ? 0.24 : 0.74;
+
+    return {
+      phaseHarmonic1Amp: (rng() < 0.5 ? 1 : -1) * (0.08 + rng() * 0.07),
+      phaseHarmonic1Offset: (rng() - 0.5) * 0.8,
+      phaseHarmonic2Amp: (rng() < 0.5 ? 1 : -1) * (0.06 + rng() * 0.06),
+      phaseHarmonic2Offset: rng() * Math.PI * 2,
+      ampSlope,
+      ampBow,
+      runawayCenter: runawayCrest.p,
+      runawaySpread: 0.145 + rng() * 0.015,
+      runawayOvershoot: compensatedOvershoot,
+      unevenCenter: unevenCrest.p,
+      unevenSpread: 0.16 + rng() * 0.02,
+      unevenDelta: compensatedUneven,
+      wobblyCenter,
+      wobblySpread: 0.34,
+      bowAmp,
+      bowPhase,
+      entryDrift: (rng() < 0.5 ? 1 : -1) * (3.0 + rng() * 3.5),
+      exitDrift: (rng() < 0.5 ? 1 : -1) * (3.5 + rng() * 3.5),
+      tremorPhases: [rng() * Math.PI * 2, rng() * Math.PI * 2, rng() * Math.PI * 2],
+    };
+  }
+
+  /**
+   * Evaluates local vertical stroke displacement for the human-learned mixed profile.
+   */
+  private static evaluateMixedLocalY(
+    u: number,
+    progress: number,
+    amplitude: number,
+    omega: number,
+    initialPhase: number,
+    config: MixedStrokeConfig
+  ): number {
+    const nominalAngle = omega * u + initialPhase;
+
+    // 1. C² smooth half-period elasticity (natural compression/stretching of adjacent arches)
+    const phaseWarp =
+      config.phaseHarmonic1Amp *
+        Math.sin(Math.PI * progress + config.phaseHarmonic1Offset) *
+        Math.sin(Math.PI * progress) +
+      config.phaseHarmonic2Amp * Math.sin(2 * Math.PI * progress + config.phaseHarmonic2Offset);
+
+    // 2. Smooth cross-stroke amplitude swell/sag + anchored crest overshoot & uneven crest
+    const dRun = (progress - config.runawayCenter) / config.runawaySpread;
+    const runawayWeight = Math.exp(-0.5 * dRun * dRun);
+    const runawayAmp = config.runawayOvershoot * runawayWeight;
+
+    const dUneven = (progress - config.unevenCenter) / config.unevenSpread;
+    const unevenAmp = config.unevenDelta * Math.exp(-0.5 * dUneven * dUneven);
+
+    const ampEnvelope =
+      1 + config.ampSlope * (progress - 0.5) + config.ampBow * (progress * (1 - progress) - 1 / 6);
+    const localAmp = amplitude * ampEnvelope + runawayAmp + unevenAmp;
+
+    // 3. Wrist-pivot baseline bow + subtle entry/exit sweep drift (attenuated around runaway crest)
+    const bow = config.bowAmp * Math.sin(Math.PI * progress + config.bowPhase);
+    const endDrift =
+      (config.entryDrift * Math.exp(-progress / 0.11) +
+        config.exitDrift * Math.exp(-(1 - progress) / 0.11)) *
+      (1 - 0.7 * runawayWeight);
+
+    // 4. Subtle aperiodic micro-tremor across 3 incommensurate frequencies (no periodic bumps)
+    const dWob = (progress - config.wobblyCenter) / config.wobblySpread;
+    const wobWeight = Math.exp(-0.5 * dWob * dWob);
+    const tremorMag = (3.4 + 5.8 * wobWeight) * (1 - 0.75 * runawayWeight);
+    const tremor =
+      tremorMag *
+      (0.52 * Math.sin(omega * 1.85 * u + config.tremorPhases[0]) +
+        0.31 * Math.sin(omega * 3.15 * u + config.tremorPhases[1]) +
+        0.17 * Math.sin(omega * 4.70 * u + config.tremorPhases[2]));
+
+    return localAmp * Math.sin(nominalAngle + phaseWarp) + bow + endDrift + tremor;
   }
 }

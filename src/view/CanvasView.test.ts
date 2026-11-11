@@ -184,5 +184,53 @@ describe('CanvasView', () => {
     expect(mockCtx.save).toHaveBeenCalled();
     expect(mockCtx.restore).toHaveBeenCalled();
   });
+
+  it('computes monotonic start-to-end point fade factors via computePointFadeFactor', () => {
+    expect(CanvasView.computePointFadeFactor(0, 10, { eraseProgress: 0, fadeSpan: 0.3 })).toBe(1);
+    expect(CanvasView.computePointFadeFactor(9, 10, { eraseProgress: 0, fadeSpan: 0.3 })).toBe(1);
+    expect(CanvasView.computePointFadeFactor(0, 10, { eraseProgress: 1, fadeSpan: 0.3 })).toBe(0);
+    expect(CanvasView.computePointFadeFactor(9, 10, { eraseProgress: 1, fadeSpan: 0.3 })).toBe(0);
+
+    // At eraseProgress = 0.5 and fadeSpan = 0.3 -> wipeFront = 0.65, wipeTail = 0.35
+    // Leading start points are fully erased, transition band smoothly climbs, trailing end points remain visible
+    const midWindow = { eraseProgress: 0.5, fadeSpan: 0.3 };
+    const startFactor = CanvasView.computePointFadeFactor(0, 11, midWindow); // p = 0.0
+    const transFactor = CanvasView.computePointFadeFactor(5, 11, midWindow); // p = 0.5
+    const endFactor = CanvasView.computePointFadeFactor(10, 11, midWindow);  // p = 1.0
+
+    expect(startFactor).toBe(0);
+    expect(transFactor).toBeGreaterThan(0);
+    expect(transFactor).toBeLessThan(1);
+    expect(endFactor).toBe(1);
+
+    // Respects explicit arcProgress when provided
+    const arcFactor = CanvasView.computePointFadeFactor(1, 3, {
+      eraseProgress: 0.5,
+      fadeSpan: 0.3,
+      arcProgress: [0, 0.9, 1.0],
+    });
+    expect(arcFactor).toBe(1);
+  });
+
+  it('skips erased leading segments in renderEvaluatedStroke when fadeWindow progresses', () => {
+    const view = new CanvasView(mockCanvas);
+    const deviations: PointDeviation[] = Array.from({ length: 11 }, (_, i) => ({
+      point: { x: i * 10, y: 100 },
+      distance: 1,
+      normalizedError: 0.03,
+      hue: 120,
+      color: 'hsl(120, 85%, 55%)',
+    }));
+
+    mockCtx.moveTo.mockClear();
+    mockCtx.stroke.mockClear();
+    view.renderEvaluatedStroke(deviations, 3.5, 0.85, { eraseProgress: 0.5, fadeSpan: 0.3 });
+
+    // Early segments (x = 0, 10, 20, 30) are faded out and skipped; visible segments start around transition tail (x >= 30)
+    expect(mockCtx.stroke).toHaveBeenCalled();
+    expect(mockCtx.stroke.mock.calls.length).toBeLessThan(deviations.length - 1);
+    const firstDrawnX = mockCtx.moveTo.mock.calls[0][0];
+    expect(firstDrawnX).toBeGreaterThanOrEqual(30);
+  });
 });
 

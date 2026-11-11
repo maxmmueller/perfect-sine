@@ -14,9 +14,13 @@ import { ScoreCalculationAnimator } from '../view/ScoreCalculationAnimator';
 
 export interface DemoHistoricalWave {
   readonly deviations: PointDeviation[];
+  readonly arcProgress: number[];
   fromAlpha: number;
   toAlpha: number;
   alpha: number;
+  fromErase: number;
+  toErase: number;
+  eraseProgress: number;
 }
 
 export class DrawingController {
@@ -351,19 +355,28 @@ export class DrawingController {
         this.demoTimeoutId = null;
       }
 
-      // Transition the completed demo wave into history with smooth decay
+      // Transition the completed demo wave into history: gentle alpha dim paired with
+      // sequential start-to-end erasure (first-drawn segments vanish first)
       if (this.currentDemoDeviations.length >= 2) {
         for (const item of this.demoHistory) {
           item.fromAlpha = item.toAlpha;
-          item.toAlpha = item.fromAlpha * 0.40;
+          item.toAlpha = Math.max(0.32, item.fromAlpha * 0.58);
           item.alpha = item.fromAlpha;
+          item.fromErase = item.toErase;
+          item.toErase = Math.min(1.0, item.fromErase + 0.44);
+          item.eraseProgress = item.fromErase;
         }
-        this.demoHistory = this.demoHistory.filter((item) => item.toAlpha >= 0.04);
+        this.demoHistory = this.demoHistory.filter((item) => item.fromErase < 0.995 && item.toAlpha >= 0.04);
+        const archived = [...this.currentDemoDeviations];
         this.demoHistory.push({
-          deviations: [...this.currentDemoDeviations],
+          deviations: archived,
+          arcProgress: DrawingController.computeArcProgress(archived),
           fromAlpha: 0.85,
-          toAlpha: 0.42,
+          toAlpha: 0.60,
           alpha: 0.85,
+          fromErase: 0,
+          toErase: 0.56,
+          eraseProgress: 0,
         });
         // Keep at most 2 fading historical waves to ensure ample canvas room without crowding
         while (this.demoHistory.length > 2) {
@@ -380,126 +393,7 @@ export class DrawingController {
     const width = dims.width > 0 ? dims.width : 800;
     const height = dims.height > 0 ? dims.height : 600;
 
-    const topSafeMargin = 95;
-    const bottomSafeMargin = 60;
-    const usableHeight = Math.max(160, height - topSafeMargin - bottomSafeMargin);
-
-    // Filter visible historical waves that must never be overlapped.
-    // The newly drawn wave must strictly clear the most recent active wave
-    // (older historical waves are already faded and the new wave gracefully alternates into their zone).
-    let visiblePointsList = this.demoHistory
-      .filter((w, idx) => (idx === this.demoHistory.length - 1 || w.alpha >= 0.50) && w.deviations.length >= 2)
-      .map((w) => w.deviations.map((d) => d.point));
-
-    // Mixed multi-error profile: every demo wave naturally contains a realistic mixture of
-    // pristine (~35% green), wobbly (~30% lime/yellow), uneven (~20% amber/orange), and runaway (~15% red)
-    let defaultProfile: 'pristine' | 'wobbly' | 'uneven' | 'runaway' | 'mixed' = 'mixed';
-    if (customOptions?.runawayDrift && Math.abs(customOptions.runawayDrift) >= 20) {
-      defaultProfile = 'runaway';
-    } else if (
-      customOptions?.jitterLevel !== undefined &&
-      customOptions.jitterLevel <= 2.0 &&
-      (!customOptions.runawayDrift || customOptions.runawayDrift === 0)
-    ) {
-      defaultProfile = 'pristine';
-    }
-    const profile: 'pristine' | 'wobbly' | 'uneven' | 'runaway' | 'mixed' = customOptions?.profile ?? defaultProfile;
-
-    const speedDice = Math.random();
-    const speedPxPerSec = customOptions?.speedPxPerSec ?? (
-      speedDice < 0.40
-        ? 580 + Math.random() * 320 // Fast brisk stroke
-        : speedDice < 0.75
-        ? 360 + Math.random() * 180 // Fluid medium stroke
-        : 240 + Math.random() * 100 // Deliberate smooth stroke
-    );
-
-    // Collision-free placement search: dynamically re-roll slot, cycles, and geometry
-    let selectedResult: DemoWaveResult | null = null;
-    const maxAttempts = customOptions?.centerY !== undefined ? 1 : 24;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      // If historical waves are taking up too much room after 12 attempts, prune oldest
-      if (attempt === 12 && this.demoHistory.length > 1) {
-        this.demoHistory.shift();
-        visiblePointsList = this.demoHistory
-          .filter((w) => w.alpha >= 0.20 && w.deviations.length >= 2)
-          .map((w) => w.deviations.map((d) => d.point));
-      } else if (attempt === 20 && this.demoHistory.length > 0) {
-        this.demoHistory = [];
-        visiblePointsList = [];
-      }
-
-      // 1. Amplitude a: authentic healthy presence across canvas (42-56px, never tiny 20px stubs)
-      const amplitude = customOptions?.amplitude ?? (44 + Math.random() * 12);
-
-      // 2. Frequency / Wavelength b: natural fluid sine wave wavelength (180-250px)
-      const wavelength = customOptions?.wavelength ?? (180 + Math.random() * 70);
-
-      // 3. Initial phase c: [0, 2*PI]
-      const phase = customOptions?.phase ?? Math.random() * Math.PI * 2;
-
-      // 4. Tilt: subtle natural human hand angle
-      const defaultTiltAngle = Math.random() < 0.45 ? (Math.random() - 0.5) * 0.16 : 0;
-      const tiltAngle = customOptions?.tiltAngle ?? defaultTiltAngle;
-
-      // 5. Cycles: generous harmonic cycles (2.0 - 3.2 cycles sweeping across screen)
-      const cycles = customOptions?.cycles ?? (2.0 + Math.random() * 1.2);
-
-      // 6. Center coordinates: spacious alternating upper / lower zones to avoid clutter and overlap
-      const candidateCenterX = customOptions?.centerX ?? (width * (0.48 + (Math.random() - 0.5) * 0.08));
-      let candidateCenterY: number;
-
-      if (customOptions?.centerY !== undefined) {
-        candidateCenterY = customOptions.centerY;
-      } else if (visiblePointsList.length > 0) {
-        // Locate the most prominent visible previous wave
-        const prevWave = visiblePointsList[visiblePointsList.length - 1];
-        const avgY = prevWave.reduce((sum, p) => sum + p.y, 0) / prevWave.length;
-        const midY = topSafeMargin + usableHeight * 0.50;
-        // Alternate zones: if previous wave was in upper half, place in lower half, and vice versa
-        const targetFraction = avgY < midY ? 0.70 : 0.30;
-        const offset = attempt === 0 ? (Math.random() - 0.5) * 0.06 : (attempt % 2 === 0 ? -0.08 : 0.08);
-        candidateCenterY = topSafeMargin + usableHeight * Math.max(0.22, Math.min(0.78, targetFraction + offset));
-      } else {
-        // Open canvas: place comfortably in upper (32%), lower (68%), or center (50%)
-        const yDice = Math.random();
-        const frac = yDice < 0.45 ? 0.32 : yDice < 0.80 ? 0.68 : 0.50;
-        candidateCenterY = topSafeMargin + usableHeight * (frac + (Math.random() - 0.5) * 0.06);
-      }
-
-      const candidateResult = DemoBot.generateStrokeWithDeviations({
-        width,
-        height,
-        centerX: candidateCenterX,
-        centerY: candidateCenterY,
-        amplitude,
-        wavelength,
-        cycles,
-        phase,
-        tiltAngle,
-        profile,
-        speedPxPerSec,
-        ...customOptions,
-      });
-
-      if (candidateResult.points.length === 0) continue;
-
-      // Verify zero overlap against visible historical waves
-      let overlaps = false;
-      const minDistance = 26;
-      for (const histPoints of visiblePointsList) {
-        if (this.checkWavesOverlap(candidateResult.points, histPoints, minDistance)) {
-          overlaps = true;
-          break;
-        }
-      }
-
-      if (!overlaps) {
-        selectedResult = candidateResult;
-        break;
-      }
-    }
+    const selectedResult = this.generatePlacedDemoWave(width, height, customOptions);
 
     if (!selectedResult || selectedResult.points.length === 0) return;
     this.demoPoints = selectedResult.points;
@@ -524,9 +418,10 @@ export class DrawingController {
 
       this.currentDemoDeviations = this.demoDeviations.slice(0, pointIndex);
 
-      // Smoothly interpolate the alpha of historical waves as the new wave is drawn
+      // Smoothly advance sequential start-to-end wipe and subtle alpha decay of historical waves
       for (const item of this.demoHistory) {
         item.alpha = item.fromAlpha + (item.toAlpha - item.fromAlpha) * progress;
+        item.eraseProgress = item.fromErase + (item.toErase - item.fromErase) * progress;
       }
 
       this.render();
@@ -570,8 +465,166 @@ export class DrawingController {
     this.demoHistory = [];
   }
 
+  private static readonly DEMO_FADE_SPAN = 0.34;
+
   public getDemoHistory(): readonly DemoHistoricalWave[] {
     return this.demoHistory;
+  }
+
+  /**
+   * Computes cumulative normalized arc length [0..1] along a stroke for even sequential fading.
+   */
+  private static computeArcProgress(deviations: readonly PointDeviation[]): number[] {
+    const n = deviations.length;
+    if (n === 0) return [];
+    if (n === 1) return [0];
+
+    const cumDist = new Array<number>(n);
+    cumDist[0] = 0;
+    for (let i = 1; i < n; i++) {
+      const a = deviations[i - 1].point;
+      const b = deviations[i].point;
+      cumDist[i] = cumDist[i - 1] + Math.hypot(b.x - a.x, b.y - a.y);
+    }
+
+    const totalLen = cumDist[n - 1];
+    if (totalLen <= 0) {
+      return cumDist.map((_, i) => i / (n - 1));
+    }
+    return cumDist.map((d) => d / totalLen);
+  }
+
+  /**
+   * Extracts only the still-visible trailing points of a progressively erasing historical wave.
+   */
+  private static getVisibleHistoricalPoints(hist: DemoHistoricalWave): Point[] {
+    const fadeWindow = {
+      eraseProgress: hist.eraseProgress,
+      fadeSpan: DrawingController.DEMO_FADE_SPAN,
+      arcProgress: hist.arcProgress,
+    };
+    const visible: Point[] = [];
+    for (let i = 0; i < hist.deviations.length; i++) {
+      if (CanvasView.computePointFadeFactor(i, hist.deviations.length, fadeWindow) > 0.04) {
+        visible.push(hist.deviations[i].point);
+      }
+    }
+    return visible;
+  }
+
+  /**
+   * Samples center-weighted candidate coordinates across safe bounds so new demo waves
+   * cluster naturally toward the center while still appearing across the canvas without overlaps.
+   */
+  private static sampleCenterWeighted(minVal: number, maxVal: number, uniformMix: boolean): number {
+    if (maxVal <= minVal) return minVal;
+    const t = uniformMix ? Math.random() : (Math.random() + Math.random()) * 0.5;
+    return minVal + t * (maxVal - minVal);
+  }
+
+  private generatePlacedDemoWave(
+    width: number,
+    height: number,
+    customOptions?: DemoWaveOptions
+  ): DemoWaveResult | null {
+    let defaultProfile: 'pristine' | 'wobbly' | 'uneven' | 'runaway' | 'mixed' = 'mixed';
+    if (customOptions?.runawayDrift && Math.abs(customOptions.runawayDrift) >= 20) {
+      defaultProfile = 'runaway';
+    } else if (
+      customOptions?.jitterLevel !== undefined &&
+      customOptions.jitterLevel <= 2.0 &&
+      (!customOptions.runawayDrift || customOptions.runawayDrift === 0)
+    ) {
+      defaultProfile = 'pristine';
+    }
+    const profile = customOptions?.profile ?? defaultProfile;
+
+    let visiblePointsList = this.demoHistory
+      .map((w) => DrawingController.getVisibleHistoricalPoints(w))
+      .filter((pts) => pts.length >= 2);
+
+    const topSafeMargin = 95;
+    const bottomSafeMargin = 60;
+    const sideSafeMargin = 48;
+    const midSafeY = topSafeMargin + Math.max(80, height - topSafeMargin - bottomSafeMargin) * 0.5;
+    const hasFixedCenter = customOptions?.centerX !== undefined && customOptions?.centerY !== undefined;
+    const maxAttempts = hasFixedCenter ? 1 : 42;
+    const minDistance = 34;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt === 36 && this.demoHistory.length > 1) {
+        this.demoHistory.shift();
+        visiblePointsList = this.demoHistory
+          .map((w) => DrawingController.getVisibleHistoricalPoints(w))
+          .filter((pts) => pts.length >= 2);
+      } else if (attempt === 40 && this.demoHistory.length > 0) {
+        this.demoHistory = [];
+        visiblePointsList = [];
+      }
+
+      const sampled = DemoBot.sampleHumanParameters(width, height);
+      const compactCycles = attempt >= 18 && !customOptions?.cycles
+        ? Math.min(sampled.cycles, 1.45)
+        : sampled.cycles;
+      const amplitude = customOptions?.amplitude ?? (
+        attempt >= 26 ? sampled.amplitude * 0.85 : sampled.amplitude
+      );
+      const wavelength = customOptions?.wavelength ?? sampled.wavelength;
+      const cycles = customOptions?.cycles ?? compactCycles;
+      const phase = customOptions?.phase ?? sampled.phase;
+      const tiltAngle = customOptions?.tiltAngle ?? sampled.tiltAngle;
+      const speedPxPerSec = customOptions?.speedPxPerSec ?? sampled.speedPxPerSec;
+
+      const halfSpanX = (cycles * wavelength) * 0.5;
+      const halfSpanY = amplitude + 34;
+      const cosTilt = Math.abs(Math.cos(tiltAngle));
+      const sinTilt = Math.abs(Math.sin(tiltAngle));
+      const boundHalfW = halfSpanX * cosTilt + halfSpanY * sinTilt;
+      const boundHalfH = halfSpanX * sinTilt + halfSpanY * cosTilt;
+
+      const safeMinX = Math.min(width * 0.5, sideSafeMargin + boundHalfW);
+      const safeMaxX = Math.max(width * 0.5, width - sideSafeMargin - boundHalfW);
+      const safeMinY = Math.min(midSafeY, topSafeMargin + boundHalfH);
+      const safeMaxY = Math.max(midSafeY, height - bottomSafeMargin - boundHalfH);
+
+      const uniformMix = attempt >= 16 ? Math.random() < 0.50 : Math.random() < 0.20;
+      const candidateCenterX = customOptions?.centerX ??
+        DrawingController.sampleCenterWeighted(safeMinX, safeMaxX, uniformMix);
+      const candidateCenterY = customOptions?.centerY ??
+        DrawingController.sampleCenterWeighted(safeMinY, safeMaxY, uniformMix);
+
+      const candidateResult = DemoBot.generateStrokeWithDeviations({
+        width,
+        height,
+        centerX: candidateCenterX,
+        centerY: candidateCenterY,
+        amplitude,
+        wavelength,
+        cycles,
+        phase,
+        tiltAngle,
+        profile,
+        speedPxPerSec,
+        ...customOptions,
+      });
+
+      if (candidateResult.points.length === 0) continue;
+      if (hasFixedCenter) return candidateResult;
+
+      let overlaps = false;
+      for (const histPoints of visiblePointsList) {
+        if (this.checkWavesOverlap(candidateResult.points, histPoints, minDistance)) {
+          overlaps = true;
+          break;
+        }
+      }
+
+      if (!overlaps) {
+        return candidateResult;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -614,8 +667,8 @@ export class DrawingController {
       return false;
     }
 
-    const stepA = Math.max(1, Math.floor(candidatePoints.length / 35));
-    const stepB = Math.max(1, Math.floor(existingPoints.length / 35));
+    const stepA = Math.max(1, Math.floor(candidatePoints.length / 70));
+    const stepB = Math.max(1, Math.floor(existingPoints.length / 70));
     for (let i = 0; i < candidatePoints.length; i += stepA) {
       const pa = candidatePoints[i];
       for (let j = 0; j < existingPoints.length; j += stepB) {
@@ -754,10 +807,14 @@ export class DrawingController {
       const liveAccuracy = this.liveEvaluation.accuracy;
       this.view.renderBanner(`${liveAccuracy}%`);
     } else if (this.isDemoActive) {
-      // Demo mode: render historical fading waves and the active wave, NO scoring/results banner
+      // Demo mode: render historical waves fading progressively from start to end, plus the active wave
       for (const hist of this.demoHistory) {
-        if (hist.alpha > 0.01 && hist.deviations.length >= 2) {
-          this.view.renderEvaluatedStroke(hist.deviations, 3.5, hist.alpha);
+        if (hist.alpha > 0.01 && hist.eraseProgress < 0.995 && hist.deviations.length >= 2) {
+          this.view.renderEvaluatedStroke(hist.deviations, 3.5, hist.alpha, {
+            eraseProgress: hist.eraseProgress,
+            fadeSpan: DrawingController.DEMO_FADE_SPAN,
+            arcProgress: hist.arcProgress,
+          });
         }
       }
       if (this.currentDemoDeviations.length >= 2) {

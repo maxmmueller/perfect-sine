@@ -335,4 +335,76 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
     expect(pctRed).toBeGreaterThanOrEqual(7);
     expect(pctRed).toBeLessThanOrEqual(25);
   });
+
+  it('samples authentic human-learned proportions, bimodal cycles, and baseline phase bias', () => {
+    let seed = 0x9e3779b9;
+    const seededRng = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+
+    const compactCount = { value: 0 };
+    const flowingCount = { value: 0 };
+    let nearCrossingStarts = 0;
+
+    for (let i = 0; i < 60; i++) {
+      const params = DemoBot.sampleHumanParameters(1200, 800, seededRng);
+      expect(params.amplitude).toBeGreaterThanOrEqual(28);
+      expect(params.amplitude).toBeLessThanOrEqual(96);
+      expect(params.wavelength).toBeGreaterThanOrEqual(120);
+      expect(params.cycles * params.wavelength).toBeLessThanOrEqual(1200 * 0.72 + 1e-6);
+
+      if (params.cycles < 1.75) compactCount.value++;
+      else flowingCount.value++;
+
+      const distToZero = Math.min(params.phase, 2 * Math.PI - params.phase);
+      const distToPi = Math.abs(params.phase - Math.PI);
+      if (Math.min(distToZero, distToPi) < 0.75) {
+        nearCrossingStarts++;
+      }
+    }
+
+    expect(compactCount.value).toBeGreaterThan(10);
+    expect(flowingCount.value).toBeGreaterThan(10);
+    expect(nearCrossingStarts).toBeGreaterThan(30);
+  });
+
+  it('produces realistic intra-stroke half-period elasticity in mixed human-learned waves', () => {
+    let seed = 0x1234abcd;
+    const seededRng = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+
+    const result = DemoBot.generateStrokeWithDeviations({
+      amplitude: 56,
+      wavelength: 220,
+      cycles: 2.5,
+      phase: 0,
+      tiltAngle: 0,
+      profile: 'mixed',
+      rng: seededRng,
+    });
+
+    const centerY = 300;
+    const crossings: number[] = [];
+    for (let i = 1; i < result.points.length; i++) {
+      const y0 = result.points[i - 1].y - centerY;
+      const y1 = result.points[i].y - centerY;
+      if ((y0 <= 0 && y1 > 0) || (y0 >= 0 && y1 < 0)) {
+        const t = Math.abs(y0) / Math.max(1e-6, Math.abs(y1 - y0));
+        crossings.push(result.points[i - 1].x + t * (result.points[i].x - result.points[i - 1].x));
+      }
+    }
+
+    expect(crossings.length).toBeGreaterThanOrEqual(4);
+    const halfPeriods: number[] = [];
+    for (let i = 1; i < crossings.length; i++) {
+      halfPeriods.push(crossings[i] - crossings[i - 1]);
+    }
+    const meanHP = halfPeriods.reduce((a, b) => a + b, 0) / halfPeriods.length;
+    const maxDiff = Math.max(...halfPeriods.map((hp) => Math.abs(hp - meanHP)));
+    // Human-like arches vary naturally in width rather than staying strictly uniform
+    expect(maxDiff).toBeGreaterThan(3);
+  });
 });
