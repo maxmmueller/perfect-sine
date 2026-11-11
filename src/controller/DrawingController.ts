@@ -15,6 +15,8 @@ import { ScoreCalculationAnimator } from '../view/ScoreCalculationAnimator';
 export interface DemoHistoricalWave {
   readonly deviations: PointDeviation[];
   readonly arcProgress: number[];
+  readonly fadeDurationMs: number;
+  elapsedFadeMs: number;
   fromAlpha: number;
   toAlpha: number;
   alpha: number;
@@ -54,6 +56,7 @@ export class DrawingController {
   private demoTimeoutId: number | null = null;
   private scoreAnimId: number | null = null;
   private isDemoActive = false;
+  private lastDemoFadeTimestamp = 0;
   private demoPoints: Point[] = [];
   private demoDeviations: PointDeviation[] = [];
   private currentDemoDeviations: PointDeviation[] = [];
@@ -355,27 +358,23 @@ export class DrawingController {
         this.demoTimeoutId = null;
       }
 
-      // Transition the completed demo wave into history: gentle alpha dim paired with
-      // sequential start-to-end erasure (first-drawn segments vanish first)
+      // Archive the just-completed demo wave into continuous time-driven history fade without
+      // interrupting or resetting the fade progression of older waves already on canvas
       if (this.currentDemoDeviations.length >= 2) {
-        for (const item of this.demoHistory) {
-          item.fromAlpha = item.toAlpha;
-          item.toAlpha = Math.max(0.32, item.fromAlpha * 0.58);
-          item.alpha = item.fromAlpha;
-          item.fromErase = item.toErase;
-          item.toErase = Math.min(1.0, item.fromErase + 0.44);
-          item.eraseProgress = item.fromErase;
-        }
-        this.demoHistory = this.demoHistory.filter((item) => item.fromErase < 0.995 && item.toAlpha >= 0.04);
+        this.demoHistory = this.demoHistory.filter(
+          (item) => item.eraseProgress < 0.995 && item.alpha > 0.02
+        );
         const archived = [...this.currentDemoDeviations];
         this.demoHistory.push({
           deviations: archived,
           arcProgress: DrawingController.computeArcProgress(archived),
+          fadeDurationMs: DrawingController.DEMO_FADE_DURATION_MS,
+          elapsedFadeMs: 0,
           fromAlpha: 0.85,
-          toAlpha: 0.60,
+          toAlpha: 0.25,
           alpha: 0.85,
           fromErase: 0,
-          toErase: 0.56,
+          toErase: 1.0,
           eraseProgress: 0,
         });
         // Keep at most 2 fading historical waves to ensure ample canvas room without crowding
@@ -402,10 +401,26 @@ export class DrawingController {
 
     let pointIndex = 0;
     const startTime = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    this.lastDemoFadeTimestamp = startTime;
     const duration = this.demoPoints[this.demoPoints.length - 1].time || 1500;
+
+    const animatePause = (pauseTimestamp: number) => {
+      if (!this.isDemoActive || this.demoTimeoutId === null) return;
+      const dt = Math.max(0, pauseTimestamp - this.lastDemoFadeTimestamp);
+      this.lastDemoFadeTimestamp = pauseTimestamp;
+      this.advanceDemoHistory(dt);
+      this.render();
+      if (this.demoHistory.length > 0 && typeof requestAnimationFrame !== 'undefined') {
+        this.demoAnimationId = requestAnimationFrame(animatePause);
+      }
+    };
 
     const animateStroke = (timestamp: number) => {
       if (!this.isDemoActive) return;
+
+      const dt = Math.max(0, timestamp - this.lastDemoFadeTimestamp);
+      this.lastDemoFadeTimestamp = timestamp;
+      this.advanceDemoHistory(dt);
 
       const elapsed = timestamp - startTime;
       const progress = Math.min(elapsed / duration, 1.0);
@@ -417,13 +432,6 @@ export class DrawingController {
       }
 
       this.currentDemoDeviations = this.demoDeviations.slice(0, pointIndex);
-
-      // Smoothly advance sequential start-to-end wipe and subtle alpha decay of historical waves
-      for (const item of this.demoHistory) {
-        item.alpha = item.fromAlpha + (item.toAlpha - item.fromAlpha) * progress;
-        item.eraseProgress = item.fromErase + (item.toErase - item.fromErase) * progress;
-      }
-
       this.render();
 
       if (progress < 1.0) {
@@ -432,13 +440,16 @@ export class DrawingController {
         }
       } else {
         // Complete demo stroke: do NOT score and do NOT display any results.
-        // Pause briefly, then draw another sine wave with historical waves smoothly fading out.
+        // Schedule the next wave while keeping older historical waves animating smoothly during the wait.
         if (typeof setTimeout !== 'undefined') {
           this.demoTimeoutId = setTimeout(() => {
             if (this.isDemoActive) {
               this.startDemo(undefined, true);
             }
           }, 600) as unknown as number;
+        }
+        if (this.demoHistory.length > 0 && typeof requestAnimationFrame !== 'undefined') {
+          this.demoAnimationId = requestAnimationFrame(animatePause);
         }
       }
     };
@@ -459,6 +470,7 @@ export class DrawingController {
       this.demoTimeoutId = null;
     }
     this.isDemoActive = false;
+    this.lastDemoFadeTimestamp = 0;
     this.demoPoints = [];
     this.demoDeviations = [];
     this.currentDemoDeviations = [];
@@ -466,6 +478,23 @@ export class DrawingController {
   }
 
   private static readonly DEMO_FADE_SPAN = 0.34;
+  private static readonly DEMO_FADE_DURATION_MS = 2600;
+
+  private advanceDemoHistory(dtMs: number): void {
+    if (dtMs <= 0 || this.demoHistory.length === 0) return;
+    const clampedDt = Math.min(dtMs, 1300);
+
+    for (const item of this.demoHistory) {
+      item.elapsedFadeMs += clampedDt;
+      const t = Math.min(1.0, item.elapsedFadeMs / Math.max(1, item.fadeDurationMs));
+      item.alpha = item.fromAlpha + (item.toAlpha - item.fromAlpha) * t;
+      item.eraseProgress = item.fromErase + (item.toErase - item.fromErase) * t;
+    }
+
+    this.demoHistory = this.demoHistory.filter(
+      (item) => item.eraseProgress < 0.995 && item.alpha > 0.02
+    );
+  }
 
   public getDemoHistory(): readonly DemoHistoricalWave[] {
     return this.demoHistory;
@@ -563,16 +592,18 @@ export class DrawingController {
       }
 
       const sampled = DemoBot.sampleHumanParameters(width, height);
-      const compactCycles = attempt >= 18 && !customOptions?.cycles
-        ? Math.min(sampled.cycles, 1.45)
-        : sampled.cycles;
+      const isCompactFallback = attempt >= 20;
       const amplitude = customOptions?.amplitude ?? (
-        attempt >= 26 ? sampled.amplitude * 0.85 : sampled.amplitude
+        isCompactFallback ? Math.max(30, Math.round(sampled.amplitude * 0.72)) : sampled.amplitude
       );
-      const wavelength = customOptions?.wavelength ?? sampled.wavelength;
-      const cycles = customOptions?.cycles ?? compactCycles;
+      const wavelength = customOptions?.wavelength ?? (
+        isCompactFallback ? Math.min(sampled.wavelength, 185) : sampled.wavelength
+      );
+      const cycles = customOptions?.cycles ?? (
+        isCompactFallback ? 1.15 : (attempt >= 16 ? Math.min(sampled.cycles, 1.45) : sampled.cycles)
+      );
       const phase = customOptions?.phase ?? sampled.phase;
-      const tiltAngle = customOptions?.tiltAngle ?? sampled.tiltAngle;
+      const tiltAngle = customOptions?.tiltAngle ?? (isCompactFallback ? 0 : sampled.tiltAngle);
       const speedPxPerSec = customOptions?.speedPxPerSec ?? sampled.speedPxPerSec;
 
       const halfSpanX = (cycles * wavelength) * 0.5;
@@ -587,11 +618,23 @@ export class DrawingController {
       const safeMinY = Math.min(midSafeY, topSafeMargin + boundHalfH);
       const safeMaxY = Math.max(midSafeY, height - bottomSafeMargin - boundHalfH);
 
-      const uniformMix = attempt >= 16 ? Math.random() < 0.50 : Math.random() < 0.20;
-      const candidateCenterX = customOptions?.centerX ??
-        DrawingController.sampleCenterWeighted(safeMinX, safeMaxX, uniformMix);
-      const candidateCenterY = customOptions?.centerY ??
-        DrawingController.sampleCenterWeighted(safeMinY, safeMaxY, uniformMix);
+      const uniformMix = attempt >= 14 ? Math.random() < 0.65 : Math.random() < 0.20;
+      let candidateCenterX: number;
+      let candidateCenterY: number;
+
+      if (attempt >= 20 && !hasFixedCenter) {
+        // Systematic perimeter & quadrant sweep so any valid pocket is found before retiring history
+        const gridIdx = attempt - 20;
+        const tx = (gridIdx % 4) / 3;
+        const ty = (Math.floor(gridIdx / 4) % 4) / 3;
+        candidateCenterX = customOptions?.centerX ?? (safeMinX + tx * Math.max(0, safeMaxX - safeMinX));
+        candidateCenterY = customOptions?.centerY ?? (safeMinY + ty * Math.max(0, safeMaxY - safeMinY));
+      } else {
+        candidateCenterX = customOptions?.centerX ??
+          DrawingController.sampleCenterWeighted(safeMinX, safeMaxX, uniformMix);
+        candidateCenterY = customOptions?.centerY ??
+          DrawingController.sampleCenterWeighted(safeMinY, safeMaxY, uniformMix);
+      }
 
       const candidateResult = DemoBot.generateStrokeWithDeviations({
         width,
@@ -611,9 +654,10 @@ export class DrawingController {
       if (candidateResult.points.length === 0) continue;
       if (hasFixedCenter) return candidateResult;
 
+      const effectiveMinDistance = attempt >= 26 ? 28 : minDistance;
       let overlaps = false;
       for (const histPoints of visiblePointsList) {
-        if (this.checkWavesOverlap(candidateResult.points, histPoints, minDistance)) {
+        if (this.checkWavesOverlap(candidateResult.points, histPoints, effectiveMinDistance)) {
           overlaps = true;
           break;
         }
