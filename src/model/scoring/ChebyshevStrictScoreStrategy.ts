@@ -1,5 +1,4 @@
-import { Point, FittedSine, StrokeEvaluation, PointDeviation } from '../types';
-import { TiltDetector } from '../TiltDetector';
+import { Point, FittedSine, StrokeEvaluation } from '../types';
 import { DeviationCalculator } from '../DeviationCalculator';
 import { IScoreStrategy } from './IScoreStrategy';
 
@@ -33,38 +32,12 @@ export class ChebyshevStrictScoreStrategy implements IScoreStrategy {
       };
     }
 
-    const aligned = TiltDetector.transformPoints(points, fit.tilt);
-    const deviations: PointDeviation[] = [];
+    const { effectiveTolerance, deviations, meanDeviation, maxDeviation, rmse } =
+      DeviationCalculator.analyzeStroke(points, fit, maxTolerance);
 
-    let sumDist = 0;
-    let sumSqDist = 0;
-    let maxDist = 0;
-
-    for (let i = 0; i < points.length; i++) {
-      const orig = points[i];
-      const al = aligned[i];
-      const dist = DeviationCalculator.calculateOrthogonalDistance(al.x, al.y, fit);
-
-      if (dist > maxDist) maxDist = dist;
-      sumDist += dist;
-      sumSqDist += dist * dist;
-
-      const { hue, normalizedError, color } = DeviationCalculator.mapDistanceToColor(dist, maxTolerance);
-      deviations.push({
-        point: orig,
-        distance: dist,
-        normalizedError,
-        hue,
-        color,
-      });
-    }
-
-    const meanDeviation = sumDist / points.length;
-    const rmse = Math.sqrt(sumSqDist / points.length);
-
-    // Chebyshev L-infinity penalty: heavily governed by maxDist
-    const chebyshevAccuracy = Math.max(0, 1 - maxDist / maxTolerance);
-    const rmseAccuracy = Math.max(0, 1 - rmse / maxTolerance);
+    // Chebyshev L-infinity penalty scaled proportionally to wave size
+    const chebyshevAccuracy = Math.max(0, 1 - maxDeviation / effectiveTolerance);
+    const rmseAccuracy = Math.max(0, 1 - rmse / effectiveTolerance);
 
     // 60% worst-case deviation, 25% RMSE, 15% R²
     const scoreNorm = 0.6 * chebyshevAccuracy + 0.25 * rmseAccuracy + 0.15 * fit.r2;
@@ -80,7 +53,7 @@ export class ChebyshevStrictScoreStrategy implements IScoreStrategy {
       fittedSine: fit,
       deviations,
       meanDeviation,
-      maxDeviation: maxDist,
+      maxDeviation,
       rmse,
       accuracy,
       score,

@@ -228,10 +228,14 @@ classDiagram
         +number REFERENCE_PERIOD_PX$
         +number MIN_SCALE_MULTIPLIER$
         +number MAX_SCALE_MULTIPLIER$
+        +number MIN_TOLERANCE_FACTOR$
+        +number MAX_TOLERANCE_FACTOR$
+        +calculateEffectiveTolerance(fit, baseTolerance)$ number
         +calculateScaleMultiplier(fit)$ number
         +calculateFinalScore(accuracy, fit, baseScoreScale)$ ScoreResult
         +calculateOrthogonalDistance(u, v, fit)$ number
         +mapDistanceToColor(distance, maxTolerance)$ ColorMapping
+        +analyzeStroke(points, fit, baseTolerance)$ StrokeMetricsAnalysis
         +evaluate(points, fit, maxTolerance, baseScoreScale)$ StrokeEvaluation
     }
 

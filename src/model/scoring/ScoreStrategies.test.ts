@@ -120,9 +120,29 @@ describe('Pluggable Scoring Strategies (A/B/n Multi-Variant Testing - US07)', ()
         const tinyEval = strategy.evaluate(tinyPoints, tinyFit);
         const largeEval = strategy.evaluate(largePoints, largeFit);
 
-        expect(tinyEval.scaleMultiplier).toBeLessThan(0.65);
-        expect(largeEval.scaleMultiplier).toBeGreaterThan(1.5);
-        expect(largeEval.score).toBeGreaterThan(tinyEval.score * 2);
+        expect(tinyEval.scaleMultiplier).toBeLessThan(0.5);
+        expect(largeEval.scaleMultiplier).toBeGreaterThan(1.8);
+        expect(largeEval.score).toBeGreaterThan(tinyEval.score * 3);
+      });
+    });
+
+    it('prevents accuracy-only score inversion when larger waves have proportional human tremor', () => {
+      const smallPoints = Array.from({ length: 46 }, (_, i) => {
+        const x = i * 4;
+        return { x, y: 35 * Math.sin((x / 180) * 2 * Math.PI) + (i % 2 === 0 ? 0.8 : -0.8) };
+      });
+      const smallFit = SineFitter.fit(smallPoints)!;
+
+      const tallPoints = Array.from({ length: 46 }, (_, i) => {
+        const x = i * 4;
+        return { x, y: 90 * Math.sin((x / 180) * 2 * Math.PI) + (i % 2 === 0 ? 3 : -3) };
+      });
+      const tallFit = SineFitter.fit(tallPoints)!;
+
+      [s1, s2, s3, s4, s5].forEach((strategy) => {
+        const smallEval = strategy.evaluate(smallPoints, smallFit);
+        const tallEval = strategy.evaluate(tallPoints, tallFit);
+        expect(tallEval.score).toBeGreaterThan(smallEval.score);
       });
     });
   });

@@ -96,15 +96,21 @@ $$\text{Score} = \operatorname{round}\!\left(\text{baseScoreScale} \cdot \left(\
 
 Because accuracy is raised to the exponent $2.5$ while length grows as $\sqrt{\text{fullCycles}}$, precision dominates roughly $5\times$ more strongly than simply drawing longer waves.
 
-### Spatial Scale Multiplier (`calculateScaleMultiplier`)
+### Spatial Tolerance & Scale Multiplier (`calculateEffectiveTolerance` & `calculateScaleMultiplier`)
 
-A tiny one-period sine wave covers minimal pixel span, making it disproportionately easy to keep absolute orthogonal deviations within `maxTolerance = 30 px`. To ensure spatial size contributes fairly to the final score, `DeviationCalculator.calculateScaleMultiplier(fit)` scales each period by its 2D geometric mean size relative to a canonical **`40 px` amplitude × `200 px` wavelength** reference wave:
+A tiny one-period sine wave covers minimal pixel span, making fixed pixel tolerances (`baseTolerance = 30 px`) disproportionately forgiving for small strokes while unfairly penalizing slight hand tremor or cornering curvature on physically large, fast strokes. To keep both accuracy and points proportional across wave sizes, `DeviationCalculator` computes a 2D spatial size ratio relative to a canonical **`40 px` amplitude × `200 px` wavelength** reference wave:
 
-$$\text{scaleMultiplier} = \operatorname{clamp}\!\left(\frac{\sqrt{\max(1, |A|) \cdot \max(1, T)}}{\sqrt{40 \cdot 200}},\; 0.25,\; 2.0\right)$$
+$$\text{rawRatio} = \frac{\sqrt{\max(1, |A|) \cdot \max(1, T)}}{\sqrt{40 \cdot 200}}$$
 
-- Tiny waves (e.g., $20\text{ px} \times 80\text{ px}$) receive `0.45x` (clamped at `0.25x` floor), preventing micro-scribbles from challenging large expressive waves.
-- Reference waves ($40\text{ px} \times 200\text{ px}$) receive exact `1.0x`.
-- Large sweeping waves (e.g., $85\text{ px} \times 320\text{ px}$) earn up to `2.0x` (`1.84x` at $85 \times 320$), exposed on `StrokeEvaluation.scaleMultiplier`.
+1. **Scale-Proportional Tolerance (`calculateEffectiveTolerance`):**
+   $$\text{effectiveTolerance} = \max(1,\; \text{baseTolerance}) \cdot \operatorname{clamp}\!\left(\text{rawRatio}^{0.75},\; 0.55,\; 1.85\right)$$
+   Sub-linear scaling tightens precision on miniature scribbles (`0.55x` floor, e.g., `16.5 px`), preserves `1.0x` (`30 px`) at the canonical `40 × 200` wave, and widens gently up to `1.85x` (`55.5 px`) for large sweeping strokes across all scoring strategies (`analyzeStroke`).
+
+2. **Super-Linear Scale Multiplier (`calculateScaleMultiplier`):**
+   $$\text{scaleMultiplier} = \operatorname{clamp}\!\left(\text{rawRatio}^{1.35},\; 0.2,\; 2.5\right)$$
+   - Tiny waves (e.g., $20\text{ px} \times 80\text{ px}$) receive `0.337x` (clamped at `0.2x` floor), preventing small easy strokes from outscoring large waves.
+   - Reference waves ($40\text{ px} \times 200\text{ px}$) receive exact `1.0x`.
+   - Large sweeping waves (e.g., $85\text{ px} \times 320\text{ px}$) earn up to `2.5x` (`2.28x` at $85 \times 320$), exposed on `StrokeEvaluation.scaleMultiplier`.
 
 | Class | Strategy ID | Mathematical Basis | Primary Sensitivity |
 | :--- | :--- | :--- | :--- |

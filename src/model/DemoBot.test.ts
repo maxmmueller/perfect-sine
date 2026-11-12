@@ -193,12 +193,14 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
   });
 
   it('should support runaway drift ("aus dem Ufer laufen") that transitions into orange and red', () => {
+    const rng = createDeterministicRng();
     const { deviations } = DemoBot.generateStrokeWithDeviations({
+      rng,
       amplitude: 45,
       wavelength: 180,
       cycles: 3.0,
       jitterLevel: 1.5,
-      runawayDrift: 30, // 30px slip off the intended course
+      runawayDrift: 34, // 34px slip off the intended course
       runawayCenter: 0.6,
       runawaySpread: 0.12,
     });

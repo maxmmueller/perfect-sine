@@ -131,29 +131,42 @@ describe('DeviationCalculator (Orthogonal Distance, HSL Gradient & Scoring)', ()
     expect(peakPointDev?.color).toBe('hsl(0, 100%, 50%)');
   });
 
-  describe('Spatial Scale Multiplier', () => {
+  describe('Spatial Scale Multiplier & Effective Tolerance', () => {
     it('returns exact 1.0 multiplier for canonical 40px × 200px wave and clamps extremes', () => {
       expect(DeviationCalculator.calculateScaleMultiplier(dummyFit)).toBe(1.0);
 
-      // Tiny wave (20px amp, 70px period) receives reduced multiplier < 0.5
+      // Tiny wave (20px amp, 70px period) receives strongly reduced multiplier
       const tinyFit: FittedSine = { ...dummyFit, amplitude: 20, period: 70 };
-      expect(DeviationCalculator.calculateScaleMultiplier(tinyFit)).toBeCloseTo(0.418, 2);
+      expect(DeviationCalculator.calculateScaleMultiplier(tinyFit)).toBeCloseTo(0.309, 2);
 
-      // Sub-minimum degenerate size clamps safely at MIN_SCALE_MULTIPLIER (0.25)
+      // Sub-minimum degenerate size clamps safely at MIN_SCALE_MULTIPLIER (0.2)
       const microFit: FittedSine = { ...dummyFit, amplitude: 1, period: 10 };
-      expect(DeviationCalculator.calculateScaleMultiplier(microFit)).toBe(0.25);
+      expect(DeviationCalculator.calculateScaleMultiplier(microFit)).toBe(0.2);
 
       // Large wave (72px amp, 300px period) earns substantial bonus below cap
       const largeFit: FittedSine = { ...dummyFit, amplitude: 72, period: 300 };
-      expect(DeviationCalculator.calculateScaleMultiplier(largeFit)).toBeCloseTo(1.643, 2);
+      expect(DeviationCalculator.calculateScaleMultiplier(largeFit)).toBeCloseTo(1.957, 2);
 
-      // Extreme giant wave clamps safely at MAX_SCALE_MULTIPLIER (2.0)
+      // Extreme giant wave clamps safely at MAX_SCALE_MULTIPLIER (2.5)
       const hugeFit: FittedSine = { ...dummyFit, amplitude: 300, period: 900 };
-      expect(DeviationCalculator.calculateScaleMultiplier(hugeFit)).toBe(2.0);
+      expect(DeviationCalculator.calculateScaleMultiplier(hugeFit)).toBe(2.5);
 
       // Negative amplitude uses absolute magnitude
       const negFit: FittedSine = { ...dummyFit, amplitude: -40, period: 200 };
       expect(DeviationCalculator.calculateScaleMultiplier(negFit)).toBe(1.0);
+    });
+
+    it('scales effective orthogonal tolerance proportionally within [0.55, 1.85] bounds', () => {
+      expect(DeviationCalculator.calculateEffectiveTolerance(dummyFit, 30)).toBe(30);
+
+      const tinyFit: FittedSine = { ...dummyFit, amplitude: 20, period: 70 };
+      expect(DeviationCalculator.calculateEffectiveTolerance(tinyFit, 30)).toBeCloseTo(16.5, 2);
+
+      const largeFit: FittedSine = { ...dummyFit, amplitude: 72, period: 300 };
+      expect(DeviationCalculator.calculateEffectiveTolerance(largeFit, 30)).toBeCloseTo(43.53, 1);
+
+      const hugeFit: FittedSine = { ...dummyFit, amplitude: 300, period: 900 };
+      expect(DeviationCalculator.calculateEffectiveTolerance(hugeFit, 30)).toBeCloseTo(55.5, 2);
     });
 
     it('awards significantly higher score to a larger 1-period wave than a tiny 1-period wave', () => {
@@ -185,9 +198,40 @@ describe('DeviationCalculator (Orthogonal Distance, HSL Gradient & Scoring)', ()
       const tinyEval = DeviationCalculator.evaluate(tinyPoints, tinyFit, 30);
       const largeEval = DeviationCalculator.evaluate(largePoints, largeFit, 30);
 
-      expect(tinyEval.scaleMultiplier).toBeLessThan(0.55);
-      expect(largeEval.scaleMultiplier).toBe(2.0);
+      expect(tinyEval.scaleMultiplier).toBeLessThan(0.4);
+      expect(largeEval.scaleMultiplier).toBe(2.5);
       expect(largeEval.score).toBeGreaterThan(tinyEval.score * 2);
+    });
+
+    it('does not invert scores when a taller wave has realistic hand tremor vs a crisp small wave', () => {
+      const smallFit: FittedSine = {
+        ...dummyFit,
+        amplitude: 35,
+        frequency: (2 * Math.PI) / 180,
+        period: 180,
+        fullCycles: 1.0,
+      };
+      const smallPoints: Point[] = [];
+      for (let x = 0; x <= 180; x += 4) {
+        smallPoints.push({ x, y: 35 * Math.sin((x / 180) * 2 * Math.PI) + (x % 8 === 0 ? 1 : -1) });
+      }
+
+      const tallFit: FittedSine = {
+        ...dummyFit,
+        amplitude: 90,
+        frequency: (2 * Math.PI) / 180,
+        period: 180,
+        fullCycles: 1.0,
+      };
+      const tallPoints: Point[] = [];
+      for (let x = 0; x <= 180; x += 4) {
+        tallPoints.push({ x, y: 90 * Math.sin((x / 180) * 2 * Math.PI) + (x % 8 === 0 ? 3.5 : -3.5) });
+      }
+
+      const smallEval = DeviationCalculator.evaluate(smallPoints, smallFit, 30);
+      const tallEval = DeviationCalculator.evaluate(tallPoints, tallFit, 30);
+
+      expect(tallEval.score).toBeGreaterThan(smallEval.score);
     });
   });
 });

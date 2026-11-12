@@ -122,8 +122,29 @@ describe('UnifiedEnsembleScoreStrategy (Final Weighted Top-3 Scorer)', () => {
     const tinyEval = ensemble.evaluate(tinyPoints, tinyFit);
     const largeEval = ensemble.evaluate(largePoints, largeFit);
 
-    expect(tinyEval.scaleMultiplier).toBeLessThan(0.65);
-    expect(largeEval.scaleMultiplier).toBeGreaterThan(1.5);
-    expect(largeEval.score).toBeGreaterThan(tinyEval.score * 2);
+    expect(tinyEval.scaleMultiplier).toBeLessThan(0.5);
+    expect(largeEval.scaleMultiplier).toBeGreaterThan(1.8);
+    expect(largeEval.score).toBeGreaterThan(tinyEval.score * 3);
+  });
+
+  it('rewards a larger noisy single-period wave more points than a crisp small single-period wave', () => {
+    const ensemble = new UnifiedEnsembleScoreStrategy();
+
+    const smallPoints = Array.from({ length: 46 }, (_, i) => {
+      const x = i * 4;
+      return { x, y: 35 * Math.sin((x / 180) * 2 * Math.PI) + (i % 2 === 0 ? 0.8 : -0.8) };
+    });
+    const smallFit = SineFitter.fit(smallPoints)!;
+
+    const tallPoints = Array.from({ length: 46 }, (_, i) => {
+      const x = i * 4;
+      return { x, y: 90 * Math.sin((x / 180) * 2 * Math.PI) + (i % 2 === 0 ? 3 : -3) };
+    });
+    const tallFit = SineFitter.fit(tallPoints)!;
+
+    const smallEval = ensemble.evaluate(smallPoints, smallFit);
+    const tallEval = ensemble.evaluate(tallPoints, tallFit);
+
+    expect(tallEval.score).toBeGreaterThan(smallEval.score);
   });
 });

@@ -1,5 +1,4 @@
-import { Point, FittedSine, StrokeEvaluation, PointDeviation } from '../types';
-import { TiltDetector } from '../TiltDetector';
+import { Point, FittedSine, StrokeEvaluation } from '../types';
 import { DeviationCalculator } from '../DeviationCalculator';
 import { IScoreStrategy } from './IScoreStrategy';
 
@@ -33,29 +32,17 @@ export class CurvatureFlowScoreStrategy implements IScoreStrategy {
       };
     }
 
-    const aligned = TiltDetector.transformPoints(points, fit.tilt);
-    const deviations: PointDeviation[] = [];
+    const { effectiveTolerance, aligned, deviations, meanDeviation, maxDeviation, rmse } =
+      DeviationCalculator.analyzeStroke(points, fit, maxTolerance);
 
-    let sumDist = 0;
-    let sumSqDist = 0;
-    let maxDist = 0;
     let sumCosineSim = 0;
-
     const { amplitude: a, frequency: omega, phase: phi } = fit;
 
-    for (let i = 0; i < points.length; i++) {
-      const orig = points[i];
+    for (let i = 0; i < aligned.length; i++) {
       const al = aligned[i];
-      const dist = DeviationCalculator.calculateOrthogonalDistance(al.x, al.y, fit);
-
-      if (dist > maxDist) maxDist = dist;
-      sumDist += dist;
-      sumSqDist += dist * dist;
-
-      // Calculate tangent vector of drawn stroke
       let dx = 1;
       let dy = 0;
-      if (i < points.length - 1) {
+      if (i < aligned.length - 1) {
         dx = aligned[i + 1].x - al.x;
         dy = aligned[i + 1].y - al.y;
       } else if (i > 0) {
@@ -66,32 +53,20 @@ export class CurvatureFlowScoreStrategy implements IScoreStrategy {
       const tDrawnX = dx / drawnLen;
       const tDrawnY = dy / drawnLen;
 
-      // Calculate theoretical tangent of reference sine: dy/dx = a * omega * cos(omega * x + phi)
+      // Theoretical tangent of reference sine: dy/dx = a * omega * cos(omega * x + phi)
       const slope = a * omega * Math.cos(omega * al.x + phi);
       const refLen = Math.hypot(1, slope);
       const tRefX = 1 / refLen;
       const tRefY = slope / refLen;
 
-      // Cosine similarity between drawn and reference tangent direction
       const cosSim = Math.max(-1, Math.min(1, tDrawnX * tRefX + tDrawnY * tRefY));
       sumCosineSim += Math.max(0, cosSim);
-
-      const { hue, normalizedError, color } = DeviationCalculator.mapDistanceToColor(dist, maxTolerance);
-      deviations.push({
-        point: orig,
-        distance: dist,
-        normalizedError,
-        hue,
-        color,
-      });
     }
 
-    const meanDeviation = sumDist / points.length;
-    const rmse = Math.sqrt(sumSqDist / points.length);
-    const meanCosineSim = sumCosineSim / points.length;
+    const meanCosineSim = sumCosineSim / aligned.length;
 
-    // Composite: 50% distance accuracy, 35% tangent curvature alignment, 15% R²
-    const distAccuracy = Math.max(0, 1 - rmse / maxTolerance);
+    // Composite: 50% scale-normalized distance accuracy, 35% tangent curvature alignment, 15% R²
+    const distAccuracy = Math.max(0, 1 - rmse / effectiveTolerance);
     const scoreNorm = 0.5 * distAccuracy + 0.35 * meanCosineSim + 0.15 * fit.r2;
     const accuracy = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
 
@@ -105,7 +80,7 @@ export class CurvatureFlowScoreStrategy implements IScoreStrategy {
       fittedSine: fit,
       deviations,
       meanDeviation,
-      maxDeviation: maxDist,
+      maxDeviation,
       rmse,
       accuracy,
       score,
