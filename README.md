@@ -40,6 +40,8 @@ The share button and all shortcuts stay unavailable on idle, during drawing and
 after a single-point click. A finished drawing enables sharing; reset, demo mode,
 a new drawing and reload disable it again until another drawing is completed.
 Session history is retained internally and does not unlock or populate sharing.
+The header stays fixed inside the viewport safe areas. Its share control retains
+a 44px touch target and remains visible while disabled.
 
 ## Drawing input
 
