@@ -115,6 +115,14 @@ exports match runtime artwork. No game rules or share triggers change.
 
 ---
 
+### Mobile input regression checks
+
+The first primary pointer owns each drawing until release/cancellation. Controller
+tests interleave multiple pointer IDs and verify that secondary moves, releases,
+cancels and capture-loss events cannot affect the stroke. They also cover reset,
+ID zero, capture API failures and a new gesture after remaining fingers lift.
+Browser smoke tests exercise actual multi-touch events, not only mouse emulation.
+
 ## 4. Testing, V-Model Verification & Coverage Gates
 
 Automated verification uses **Vitest** (`vitest.config.ts`) configured with `environment: 'node'`, matching V-Model isolation requirements:

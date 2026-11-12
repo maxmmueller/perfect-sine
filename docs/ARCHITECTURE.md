@@ -34,6 +34,16 @@ logos through `BrandView.mountBrandLogos()`, then wires:
 
 ---
 
+### Single-pointer drawing
+
+`DrawingController` gives each stroke one `activePointerId`. Only a primary
+contact can begin a stroke; additional fingers and simultaneous mouse/pen inputs
+cannot append points, reset or finish the owner's drawing. Pointer up, pointer
+cancel and unexpected capture loss finish only the owning pointer. Reset also
+releases ownership/capture. Remaining secondary touches never inherit the stroke;
+a fresh primary contact starts the next attempt. Capture is cleared before the
+browser release call to tolerate normal/reentrant `lostpointercapture` events.
+
 ## 2. UML Class Diagrams
 
 To preserve legibility, the full object model is organized into three cohesive UML class diagrams:
@@ -84,6 +94,8 @@ classDiagram
 
     class DrawingController {
         -HTMLCanvasElement canvas
+        -number activePointerId
+        -releaseActivePointer() void
         -CanvasView view
         -GameStateMachine stateMachine
         -StrokeBuffer strokeBuffer
