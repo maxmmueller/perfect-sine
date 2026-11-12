@@ -122,6 +122,8 @@ tests interleave multiple pointer IDs and verify that secondary moves, releases,
 cancels and capture-loss events cannot affect the stroke. They also cover reset,
 ID zero, capture API failures and a new gesture after remaining fingers lift.
 Browser smoke tests exercise actual multi-touch events, not only mouse emulation.
+Demo color-distribution tests use a seeded RNG; the controller runaway-rendering
+test uses fixed geometry and a fixed RNG to keep CI assertions reproducible.
 
 ## 4. Testing, V-Model Verification & Coverage Gates
 

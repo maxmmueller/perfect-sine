@@ -238,8 +238,10 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
   });
 
   it('should generate distinct color spectrums according to imperfection profile', () => {
+    const rng = createDeterministicRng();
     // 1. pristine: predominantly green (>90% green)
     const pristine = DemoBot.generateStrokeWithDeviations({
+      rng,
       profile: 'pristine',
       amplitude: 45,
       wavelength: 180,
@@ -250,6 +252,7 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
 
     // 2. wobbly: dips down to yellow/lime (< 95 deg)
     const wobbly = DemoBot.generateStrokeWithDeviations({
+      rng,
       profile: 'wobbly',
       amplitude: 45,
       wavelength: 180,
@@ -260,6 +263,7 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
 
     // 3. uneven: dips down into yellow/amber/orange (< 65 deg)
     const uneven = DemoBot.generateStrokeWithDeviations({
+      rng,
       profile: 'uneven',
       amplitude: 45,
       wavelength: 180,
@@ -270,6 +274,7 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
 
     // 4. runaway: dips down into deep orange/red (< 30 deg)
     const runaway = DemoBot.generateStrokeWithDeviations({
+      rng,
       profile: 'runaway',
       amplitude: 45,
       wavelength: 180,
@@ -280,6 +285,7 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
   });
 
   it('should combine all 4 error types (pristine, wobbly, uneven, runaway) in a single mixed demo stroke', () => {
+    const rng = createDeterministicRng();
     let totalGreen = 0;
     let totalLimeYellow = 0;
     let totalAmberOrange = 0;
@@ -288,6 +294,7 @@ describe('DemoBot (Procedural Human-Like Stroke Generator)', () => {
 
     for (let trial = 0; trial < 15; trial++) {
       const stroke = DemoBot.generateStrokeWithDeviations({
+        rng,
         profile: 'mixed',
         cycles: 2.5,
         amplitude: 45,

@@ -688,8 +688,12 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
 
       const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
 
-      // Start demo with runaway drift
+      // Fix geometry/profile so this tests runaway rendering, not random demo selection.
       controller.startDemo({
+        centerX: 400, centerY: 300,
+        amplitude: 45, wavelength: 180, cycles: 2, phase: 0, tiltAngle: 0,
+        profile: 'runaway',
+        rng: () => 0.5,
         runawayDrift: 32,
         runawayCenter: 0.6,
         speedPxPerSec: 500,
