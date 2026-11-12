@@ -1,3 +1,4 @@
+import { drawGradientStroke } from './GradientStrokeRenderer';
 import { TEXT_FONT, METRIC_FONT } from './Typography';
 import { getNotebookPalette } from './ThemeView';
 import { Point, PointDeviation } from '../model/types';
@@ -159,6 +160,13 @@ export class CanvasView {
     if (fadeWindow && fadeWindow.eraseProgress >= 1) return;
 
     const hasSequentialFade = Boolean(fadeWindow && fadeWindow.eraseProgress > 0);
+    if (!hasSequentialFade) {
+      this.ctx.save();
+      this.ctx.globalAlpha = safeAlpha;
+      drawGradientStroke(this.ctx, deviations, lineWidth);
+      this.ctx.restore();
+      return;
+    }
 
     this.ctx.save();
     this.ctx.globalAlpha = safeAlpha;

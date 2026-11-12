@@ -334,6 +334,11 @@ classDiagram
         +isModalOpen() boolean
     }
 
+    class GradientStrokeRenderer {
+        <<module>>
+        +drawGradientStroke(ctx, deviations, lineWidth)$ void
+    }
+
     class BrandView {
         <<module>>
         +createBrandSvg(variant, ink, id)$ string
@@ -403,6 +408,8 @@ classDiagram
     HudView --> SessionHistoryService : observes
     HudView ..> ShareCardGenerator : guards and exports current drawing
     ShareCardGenerator ..> BrandView : draws shared vector logos
+    ShareCardGenerator ..> GradientStrokeRenderer : exact stroke colors and gradients
+    CanvasView ..> GradientStrokeRenderer : evaluated stroke rendering
     setupDevTools ..> CurveRecorderService : creates
     setupDevTools ..> CurveRecorderView : creates
     CurveRecorderView --> CurveRecorderService : observes

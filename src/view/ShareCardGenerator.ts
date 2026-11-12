@@ -1,3 +1,4 @@
+import { drawGradientStroke } from './GradientStrokeRenderer';
 import { TEXT_FONT, METRIC_FONT } from './Typography';
 import { drawBrandLogo } from './BrandView';
 import { getNotebookPalette } from './ThemeView';
@@ -321,18 +322,9 @@ export class ShareCardGenerator {
     // Preserve the evaluated stroke colors; keep the share image free of fitting overlays.
     const deviations: readonly PointDeviation[] | undefined = stroke.evaluation?.deviations;
     if (deviations && deviations.length === stroke.points.length) {
-      ctx.lineWidth = 5;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      for (let i = 1; i < deviations.length; i++) {
-        const a = mapPt(deviations[i - 1].point);
-        const b = mapPt(deviations[i].point);
-        ctx.strokeStyle = `hsl(${Math.round(deviations[i].hue)}, 90%, 56%)`;
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
+      drawGradientStroke(ctx, deviations.map(deviation => ({
+        ...deviation, point: mapPt(deviation.point),
+      })), 5);
     } else {
       ctx.strokeStyle = getNotebookPalette().ink;
       ctx.lineWidth = 5;
