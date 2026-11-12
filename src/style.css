@@ -49,7 +49,7 @@ button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 4px
 .modal-header .brand-logo { width: 112px; }
 .hud-metrics { display: flex; flex-shrink: 0; align-items: center; gap: 12px; }
 .hud-pill { display: none; }
-.share-btn, .modal-close-btn {
+.wave-export-trigger, .modal-close-btn {
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -60,9 +60,9 @@ button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 4px
   border: 1px solid var(--border-color);
   border-radius: 8px;
 }
-.share-btn { -webkit-appearance: none; appearance: none; }
+.wave-export-trigger { -webkit-appearance: none; appearance: none; }
 button:disabled { cursor: default; opacity: 0.3; }
-.share-btn:disabled { opacity: 0.6; }
+.wave-export-trigger:disabled { opacity: 0.6; }
 button { transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease; }
 button:not(:disabled):hover { background-color: var(--hover-color); border-color: var(--text-muted); }
 button:not(:disabled):active { transform: translateY(1px); }
@@ -101,7 +101,7 @@ button:not(:disabled):active { transform: translateY(1px); }
 .modal-header { height: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .summary-body { min-height: 0; padding: 12px 24px 20px; overflow-y: auto; overscroll-behavior: contain; }
-.share-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.wave-export-content { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .modal-header h2 { font-size: 30px; color: var(--color-cyan); }
 .share-preview-strip { overflow: hidden; border: 0; border-radius: 0; background: var(--bg-color); }
 .share-preview-strip.hidden { display: none; }

@@ -122,8 +122,13 @@ The HUD controls cannot shrink, and the share button uses custom CSS appearance
 and 60% opacity when disabled so its 44px touch target remains discoverable.
 Browser checks cover Chromium and WebKit in phone/tablet sizes, tablet rotation,
 desktop user agents, idle/drawing/finished states and opening the dialog by touch.
-A device-specific iPad disappearance was reported but not reproduced in automation;
-these styles harden viewport positioning and visibility without changing eligibility.
+The header uses the game-specific `wave-export-trigger` class instead of the
+generic `share-btn`; its content uses `wave-export-content` instead of `share-section`.
+Both previous names match cosmetic selectors in
+[EasyList Social](https://github.com/easylist/easylist/blob/master/fanboy-addon/fanboy_social_general_hide.txt).
+A cosmetic-filter regression check injects `.share-btn, .share-section { display: none !important; }`
+and verifies that the actual export control remains visible and touch-operable.
+This reproduces one possible cause of the iPad report; device settings are unconfirmed.
 
 ### Mobile input regression checks
 
