@@ -6,6 +6,10 @@
 
 ## 1. Layer Boundaries & Runtime Bootstrap
 
+The presentation uses one fixed dark palette (`ThemeView.getNotebookPalette()`)
+for DOM styling, game canvas and share exports. There is no theme switch or
+system/storage-driven theme initialization.
+
 | Layer | Directory | Responsibilities | Forbidden Dependencies |
 | :--- | :--- | :--- | :--- |
 | **Model** | `src/model/`, `src/model/scoring/` | State machine, point sampling buffer, PCA tilt alignment, OLS sine fitting, period/zigzag validation, orthogonal distance, scoring strategies, demo trajectory synthesis, session & recorder persistence abstractions. | `window`, `document`, `HTMLCanvasElement`, CSS |
@@ -15,12 +19,16 @@
 
 ### Bootstrap Flow (`src/main.ts`)
 
-On `DOMContentLoaded`, [`initializeApp`](../src/main.ts) wires:
+On `DOMContentLoaded`, [`initializeApp`](../src/main.ts) first mounts shared SVG
+logos through `BrandView.mountBrandLogos()`, then wires:
 1. `SessionHistoryService` (reading/writing `localStorage` via `IStorageAdapter` fallback)
 2. `UnifiedEnsembleScoreStrategy` (`id = 'unified_ensemble'`)
 3. `GameStateMachine`, `StrokeBuffer(2.0)`, and `CanvasView`
 4. `DrawingController` with `onEvaluationComplete` -> `sessionService.addAttempt(...)`
-5. `HudView` with a `getWaveSnapshot` callback for `ShareCardGenerator`
+5. `HudView` with a `getWaveSnapshot` callback restricted to a completed own
+   drawing (`LOCKED`, demo stopped). State changes refresh share availability;
+   the `LOCKED` update is deferred to a microtask so the captured stroke is ready.
+   Session history cannot populate or enable sharing.
 6. **Conditional Dev Tools:** Only when `import.meta.env.VITE_DEV_TOOLS === 'true'` does `main.ts` call `import('./dev/setupDevTools')`. Vite statically replaces `import.meta.env.VITE_DEV_TOOLS` during `vite build`, allowing Rollup to tree-shake all dev code and stylesheets from production artifacts.
 7. Launches `controller.startDemo()` immediately and arms a 15-second idle timeout to resume the demo if the canvas remains empty after user interaction stops.
 
@@ -95,6 +103,7 @@ classDiagram
     }
 
     class CanvasView {
+        -renderAccuracy(accuracy) void
         +handleResize() void
         +clear() void
         +drawBackgroundGrid() void
@@ -312,28 +321,37 @@ classDiagram
     }
 
     class HudView {
-        -SessionHistoryService sessionService
+        -Function getWaveSnapshot
         +isScreenshotShortcut(e)$ boolean
         +isInAppShareShortcut(e)$ boolean
         +handleShare() Promise~void~
         +handleDownloadScreenshot() void
         +handleCopy() Promise~void~
         +update(summary) void
+        +updateShareAvailability() void
         +openModal(initialStatus) void
         +closeModal() void
         +isModalOpen() boolean
     }
 
+    class BrandView {
+        <<module>>
+        +createBrandSvg(variant, ink, id)$ string
+        +mountBrandLogos()$ void
+        +drawBrandLogo(ctx, variant, x, y, width, ink)$ void
+    }
+
     class ShareCardGenerator {
         +number WIDTH$ = 960
-        +number HEIGHT$ = 560
-        +buildShareText(summary, url)$ string
-        +renderShareCard(summary, snapshot)$ HTMLCanvasElement
-        +toDataUrl(summary, snapshot)$ string
+        +number HEIGHT$ = 960
+        +canShare(snapshot)$ boolean
+        +buildShareText(snapshot)$ string
+        +renderShareCard(snapshot)$ HTMLCanvasElement
+        +toDataUrl(snapshot)$ string
         +canvasToBlob(canvas)$ Promise~Blob~
-        +downloadShareCard(summary, snapshot, filename)$ void
-        +copyShareCard(summary, snapshot)$ Promise~ShareOutcome~
-        +share(summary, snapshot)$ Promise~ShareOutcome~
+        +downloadShareCard(snapshot, filename)$ boolean
+        +copyShareCard(snapshot)$ Promise~ShareOutcome~
+        +share(snapshot)$ Promise~ShareOutcome~
     }
 
     class setupDevTools {
@@ -383,7 +401,8 @@ classDiagram
     IStorageAdapter <|.. MemoryStorageAdapter
     SessionHistoryService o-- IStorageAdapter : persists via
     HudView --> SessionHistoryService : observes
-    HudView ..> ShareCardGenerator : generates cards
+    HudView ..> ShareCardGenerator : guards and exports current drawing
+    ShareCardGenerator ..> BrandView : draws shared vector logos
     setupDevTools ..> CurveRecorderService : creates
     setupDevTools ..> CurveRecorderView : creates
     CurveRecorderView --> CurveRecorderService : observes

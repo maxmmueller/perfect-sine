@@ -1,307 +1,142 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ShareCardGenerator } from './ShareCardGenerator';
-import { SessionSummary } from '../model/SessionHistoryService';
-import { StrokeEvaluation } from '../model/types';
+import { ShareCardGenerator, type ShareCardSnapshot } from './ShareCardGenerator';
+import { drawnWave, waveEvaluation } from './share.test-fixtures';
 
-const sampleSummary: SessionSummary = {
-  totalAttempts: 6,
-  highscore: 1840,
-  latestScore: 1620,
-  averageScore: 1410,
-  averageAccuracy: 92.4,
-  bestAccuracy: 96.2,
-  standardDeviation: 4.1,
-  consistencyScore: 89,
-  totalCyclesDrawn: 11.5,
-  streakCount: 4,
-  persona: {
-    title: 'Laser Harmonic Synthesizer',
-    subtitle: 'Sublime neuromuscular calibration and pristine sinusoidal precision.',
-  },
+const invalidWave: ShareCardSnapshot = {
+  stroke: { points: [{ x: 10, y: 10 }, { x: 40, y: 10 }], evaluation: null, validationMessage: 'Sine Wave Too Flat' },
 };
 
-const emptySummary: SessionSummary = {
-  ...sampleSummary,
-  totalAttempts: 0,
-  highscore: 0,
-  latestScore: 0,
-  averageScore: 0,
-  averageAccuracy: 0,
-  bestAccuracy: 0,
-  totalCyclesDrawn: 0,
-  streakCount: 0,
-};
-
-const sampleEvaluation: StrokeEvaluation = {
-  score: 1840,
-  accuracy: 94.6,
-  rmse: 2.3,
-  meanDeviation: 1.9,
-  maxDeviation: 5.2,
-  deviations: [
-    {
-      point: { x: 100, y: 300 },
-      distance: 1.0,
-      normalizedError: 0.03,
-      hue: 118,
-      color: 'hsl(118, 90%, 56%)',
-    },
-    {
-      point: { x: 150, y: 240 },
-      distance: 1.8,
-      normalizedError: 0.06,
-      hue: 110,
-      color: 'hsl(110, 90%, 56%)',
-    },
-    {
-      point: { x: 200, y: 300 },
-      distance: 2.2,
-      normalizedError: 0.08,
-      hue: 102,
-      color: 'hsl(102, 90%, 56%)',
-    },
-  ],
-  fittedSine: {
-    amplitude: 60,
-    frequency: 0.04,
-    phase: 0,
-    offset: 300,
-    period: 157,
-    fullCycles: 1.8,
-    r2: 0.96,
-    tilt: { angle: 0, centroid: { x: 150, y: 300 } },
-  },
-};
-
-describe('ShareCardGenerator', () => {
-  let mockContext: Record<string, unknown>;
-  let mockCanvas: HTMLCanvasElement;
-  let mockLink: { href: string; download: string; click: ReturnType<typeof vi.fn> };
-  let blobResult: Blob | null;
+describe('ShareCardGenerator: current drawing only', () => {
+  let ctx: Record<string, unknown>;
+  let canvas: HTMLCanvasElement;
+  let link: { href: string; download: string; click: ReturnType<typeof vi.fn> };
+  let labels: string[];
 
   beforeEach(() => {
-    blobResult = new Blob(['mock-png'], { type: 'image/png' });
-
-    mockContext = {
-      fillRect: vi.fn(),
-      beginPath: vi.fn(),
-      moveTo: vi.fn(),
-      lineTo: vi.fn(),
-      quadraticCurveTo: vi.fn(),
-      closePath: vi.fn(),
-      clip: vi.fn(),
-      stroke: vi.fn(),
-      fill: vi.fn(),
-      save: vi.fn(),
-      restore: vi.fn(),
-      fillText: vi.fn(),
-      setLineDash: vi.fn(),
-      drawImage: vi.fn(),
+    labels = [];
+    vi.stubGlobal('Path2D', class { constructor(readonly path: string) {} });
+    ctx = {
+      fillRect: vi.fn(), translate: vi.fn(), scale: vi.fn(), beginPath: vi.fn(),
+      moveTo: vi.fn(), lineTo: vi.fn(), quadraticCurveTo: vi.fn(), closePath: vi.fn(),
+      clip: vi.fn(), stroke: vi.fn(), fill: vi.fn(), save: vi.fn(), restore: vi.fn(),
+      fillText: vi.fn((text: string) => labels.push(text)),
       measureText: vi.fn((text: string) => ({ width: text.length * 7 })),
-      createLinearGradient: vi.fn(() => ({
-        addColorStop: vi.fn(),
-      })),
+      createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
     };
-
-    mockCanvas = {
-      width: 0,
-      height: 0,
-      getContext: vi.fn(() => mockContext),
-      toDataURL: vi.fn(() => 'data:image/png;base64,shareCardMock'),
-      toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(blobResult)),
+    canvas = {
+      width: 0, height: 0, getContext: vi.fn(() => ctx),
+      toDataURL: vi.fn(() => 'data:image/png;base64,currentWave'),
+      toBlob: vi.fn((callback: (blob: Blob) => void) => callback(new Blob(['wave'], { type: 'image/png' }))),
     } as unknown as HTMLCanvasElement;
-
-    mockLink = {
-      href: '',
-      download: '',
-      click: vi.fn(),
-    };
-
+    link = { href: '', download: '', click: vi.fn() };
     vi.stubGlobal('document', {
-      createElement: vi.fn((tag: string) => {
-        if (tag === 'canvas') return mockCanvas;
-        if (tag === 'a') return mockLink;
-        return {};
-      }),
-      body: {
-        appendChild: vi.fn(),
-        removeChild: vi.fn(),
-      },
+      createElement: vi.fn((tag: string) => tag === 'canvas' ? canvas : link),
+      body: { appendChild: vi.fn(), removeChild: vi.fn() },
     });
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-  });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-  it('builds formatted share text with game name and metrics only (no persona fluff)', () => {
-    const activeText = ShareCardGenerator.buildShareText(sampleSummary, 'https://example.com/sine');
-    expect(activeText).toContain('Perfect Sine');
-    expect(activeText).toContain('1,840 pts');
-    expect(activeText).toContain('92.4%');
-    expect(activeText).not.toContain('Laser Harmonic Synthesizer');
-    expect(activeText).not.toContain('Persona:');
-    expect(activeText).toContain('https://example.com/sine');
-
-    const emptyText = ShareCardGenerator.buildShareText(emptySummary);
-    expect(emptyText).toBe('Perfect Sine');
-  });
-
-  it('renders share card with evaluated stroke, reference wave, and all stats', () => {
-    const canvas = ShareCardGenerator.renderShareCard(sampleSummary, {
-      stroke: {
-        points: [
-          { x: 100, y: 300 },
-          { x: 150, y: 240 },
-          { x: 200, y: 300 },
-        ],
-        evaluation: sampleEvaluation,
-      },
-      url: 'https://perfect-sine.dev/play',
-    });
-
-    expect(canvas.width).toBe(ShareCardGenerator.WIDTH);
-    expect(canvas.height).toBe(ShareCardGenerator.HEIGHT);
-    expect(mockContext.setLineDash).toHaveBeenCalledWith([6, 6]);
-    expect(mockContext.fillText).toHaveBeenCalledWith('Perfect Sine', 36, 60);
-    expect(mockContext.fillText).not.toHaveBeenCalledWith('Wave Summary', expect.any(Number), expect.any(Number));
-    expect(mockContext.fillText).toHaveBeenCalledWith(
-      'Last · 94.6% (1,840 pts)',
-      expect.any(Number),
-      56
+  it('builds share text from only the current accuracy and score', () => {
+    expect(ShareCardGenerator.buildShareText(drawnWave)).toBe(
+      'Perfect Sine — 94.6% | 1,840 pts\nhttps://perfect-sine.test/'
     );
+    expect(ShareCardGenerator.buildShareText(invalidWave)).toBe('Perfect Sine — Sine Wave Too Flat');
   });
 
-  it('renders live sourceCanvas snapshot when no completed user stroke exists', () => {
-    const sourceCanvas = { width: 800, height: 600 } as unknown as HTMLCanvasElement;
-    ShareCardGenerator.renderShareCard(sampleSummary, { sourceCanvas });
-
-    expect(mockContext.drawImage).toHaveBeenCalledWith(
-      sourceCanvas,
-      expect.any(Number),
-      expect.any(Number),
-      expect.any(Number),
-      expect.any(Number)
-    );
+  it.each([
+    {}, { stroke: null }, { stroke: { points: [], evaluation: null } },
+    { stroke: { points: [{ x: 1, y: 2 }], evaluation: null } },
+  ] satisfies ShareCardSnapshot[])('rejects an absent or single-point drawing before rendering', snapshot => {
+    expect(ShareCardGenerator.canShare(snapshot)).toBe(false);
+    expect(() => ShareCardGenerator.renderShareCard(snapshot)).toThrow('Draw a wave before sharing.');
+    expect(() => ShareCardGenerator.buildShareText(snapshot)).toThrow('Draw a wave before sharing.');
+    expect(document.createElement).not.toHaveBeenCalled();
   });
 
-  it('renders unevaluated stroke and fallback wave cleanly without throwing', () => {
-    const url1 = ShareCardGenerator.toDataUrl(emptySummary, {
-      stroke: {
-        points: [
-          { x: 10, y: 10 },
-          { x: 50, y: 40 },
-        ],
-        evaluation: null,
-      },
-    });
-    expect(url1).toBe('data:image/png;base64,shareCardMock');
-
-    const url2 = ShareCardGenerator.toDataUrl(emptySummary);
-    expect(url2).toBe('data:image/png;base64,shareCardMock');
+  it('cannot download, copy or natively share an idle/demo canvas', async () => {
+    const share = vi.fn(); const write = vi.fn(); const writeText = vi.fn();
+    vi.stubGlobal('navigator', { share, clipboard: { write, writeText } });
+    expect(ShareCardGenerator.canShare(null)).toBe(false);
+    expect(ShareCardGenerator.canShare(undefined)).toBe(false);
+    expect(ShareCardGenerator.downloadShareCard({})).toBe(false);
+    expect((await ShareCardGenerator.copyShareCard({})).status).toBe('error');
+    expect((await ShareCardGenerator.share({})).status).toBe('error');
+    expect(document.createElement).not.toHaveBeenCalled();
+    expect(share).not.toHaveBeenCalled(); expect(write).not.toHaveBeenCalled(); expect(writeText).not.toHaveBeenCalled();
   });
 
-  it('triggers PNG download with expected filename', () => {
-    const result = ShareCardGenerator.downloadShareCard(
-      sampleSummary,
-      undefined,
-      'custom-wave.png'
-    );
-
-    expect(result).toBe(true);
-    expect(mockLink.download).toBe('custom-wave.png');
-    expect(mockLink.href).toBe('data:image/png;base64,shareCardMock');
-    expect(mockLink.click).toHaveBeenCalledTimes(1);
-    expect(document.body.appendChild).toHaveBeenCalledWith(mockLink);
-    expect(document.body.removeChild).toHaveBeenCalledWith(mockLink);
+  it('renders the actual drawing and its metrics without any session information or synthetic waveform', () => {
+    const result = ShareCardGenerator.renderShareCard(drawnWave);
+    expect(result.width).toBe(960); expect(result.height).toBe(960);
+    expect(labels).toContain(`${waveEvaluation.accuracy.toFixed(1)}%`);
+    expect(labels).toContain('1,840 pts');
+    expect(labels.join(' ')).not.toContain('cycles');
+    expect(ctx.fillText).toHaveBeenCalledWith('perfect-sine.test', 92, 910);
+    expect(labels.join(' ')).not.toMatch(/Personal Best|Average|Avg Accuracy|Attempts|Streak|Consistency|Session/);
+    expect(ctx.fill).toHaveBeenCalledWith(expect.any(Path2D));
+    expect(ctx.lineTo).toHaveBeenCalled();
   });
 
-  it('copies PNG image via ClipboardItem when supported, or falls back to clipboard text', async () => {
+  it('retains an invalid drawing and its validation message without fabricating score or accuracy', () => {
+    ShareCardGenerator.renderShareCard(invalidWave);
+    expect(labels).toContain('Sine Wave Too Flat');
+    expect(labels.join(' ')).not.toMatch(/\d|%|pts|cycles|Personal Best/);
+  });
+
+  it('renders an unevaluated drawing without substituting session data or a demo', () => {
+    ShareCardGenerator.renderShareCard({ stroke: { ...invalidWave.stroke!, validationMessage: null } });
+    expect(labels).toHaveLength(0);
+  });
+
+  it('always exports the fixed dark appearance', () => {
+    const backgrounds: unknown[] = [];
+    ctx.fillRect = vi.fn(() => backgrounds.push(ctx.fillStyle));
+    ShareCardGenerator.toDataUrl(drawnWave);
+    expect(backgrounds).toEqual(['#1c252c']);
+  });
+
+  it('downloads only the captured wave with the expected filename', () => {
+    expect(ShareCardGenerator.downloadShareCard(drawnWave)).toBe(true);
+    expect(link.download).toBe('perfect-sine-wave.png');
+    expect(link.href).toBe('data:image/png;base64,currentWave');
+    expect(link.click).toHaveBeenCalledTimes(1);
+    expect(document.body.appendChild).toHaveBeenCalledWith(link);
+    expect(document.body.removeChild).toHaveBeenCalledWith(link);
+  });
+
+  it('copies the current PNG and falls back to current-wave text when image writes are blocked', async () => {
     const write = vi.fn().mockResolvedValue(undefined);
     const writeText = vi.fn().mockResolvedValue(undefined);
-
-    vi.stubGlobal('ClipboardItem', function (this: Record<string, unknown>, items: Record<string, Blob>) {
-      return items;
-    });
+    vi.stubGlobal('ClipboardItem', class { constructor(readonly images: Record<string, Blob>) {} });
     vi.stubGlobal('navigator', { clipboard: { write, writeText } });
-
-    const imgOutcome = await ShareCardGenerator.copyShareCard(sampleSummary, {
-      url: 'https://example.com',
-    });
-    expect(imgOutcome.status).toBe('copied-image');
-    expect(write).toHaveBeenCalledTimes(1);
-
-    // Reject image write -> fallback to writeText
-    write.mockRejectedValueOnce(new Error('NotAllowed'));
-    const textOutcome = await ShareCardGenerator.copyShareCard(sampleSummary, {
-      url: 'https://example.com',
-    });
-    expect(textOutcome.status).toBe('copied-text');
-    expect(writeText).toHaveBeenCalledWith(
-      expect.stringContaining('https://example.com')
-    );
+    expect((await ShareCardGenerator.copyShareCard(drawnWave)).status).toBe('copied-image');
+    expect(write).toHaveBeenCalledOnce();
+    write.mockRejectedValueOnce(new Error('Blocked'));
+    expect((await ShareCardGenerator.copyShareCard(drawnWave)).status).toBe('copied-text');
+    expect(writeText).toHaveBeenCalledWith(ShareCardGenerator.buildShareText(drawnWave));
   });
 
-  it('shares file via Web Share API when supported and handles cancel cleanly', async () => {
-    const shareMock = vi.fn().mockResolvedValue(undefined);
-    const canShareMock = vi.fn().mockReturnValue(true);
-
-    vi.stubGlobal('navigator', {
-      share: shareMock,
-      canShare: canShareMock,
-    });
-
-    const outcome = await ShareCardGenerator.share(sampleSummary, {
-      url: 'https://example.com',
-    });
-    expect(outcome.status).toBe('shared');
-    expect(shareMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'Perfect Sine',
-        url: 'https://example.com',
-        files: expect.any(Array),
-      })
-    );
-
-    // AbortError cancels silently without falling back
-    const abortErr = new Error('User cancelled');
-    abortErr.name = 'AbortError';
-    shareMock.mockRejectedValueOnce(abortErr);
-
-    const cancelOutcome = await ShareCardGenerator.share(sampleSummary, {
-      url: 'https://example.com',
-    });
-    expect(cancelOutcome.status).toBe('cancelled');
+  it('shares the current file and current-wave metadata, and treats cancellation as cancellation', async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { share, canShare: () => true });
+    expect((await ShareCardGenerator.share(drawnWave)).status).toBe('shared');
+    expect(share).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Perfect Sine', text: ShareCardGenerator.buildShareText(drawnWave),
+      files: [expect.objectContaining({ name: 'perfect-sine-wave.png' })],
+    }));
+    const error = new Error('Cancelled'); error.name = 'AbortError'; share.mockRejectedValueOnce(error);
+    expect((await ShareCardGenerator.share(drawnWave)).status).toBe('cancelled');
+    expect(link.click).not.toHaveBeenCalled();
   });
 
-  it('retries Web Share without files on non-AbortError and falls back to download when Web Share & Clipboard are unavailable', async () => {
-    const shareMock = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('File sharing blocked'))
-      .mockResolvedValueOnce(undefined);
-
-    vi.stubGlobal('navigator', {
-      share: shareMock,
-      canShare: () => true,
-    });
-
-    const retryOutcome = await ShareCardGenerator.share(sampleSummary, {
-      url: 'https://example.com',
-    });
-    expect(retryOutcome.status).toBe('shared');
-    expect(shareMock).toHaveBeenCalledTimes(2);
-    expect(shareMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ url: 'https://example.com' })
-    );
-
-    // No navigator.share and no clipboard -> falls back to PNG download
+  it('retries native sharing without files and downloads the current wave when sharing and copying are unavailable', async () => {
+    const share = vi.fn().mockRejectedValueOnce(new Error('Files blocked')).mockResolvedValueOnce(undefined);
+    vi.stubGlobal('navigator', { share, canShare: () => true });
+    expect((await ShareCardGenerator.share(drawnWave)).status).toBe('shared');
+    expect(share).toHaveBeenLastCalledWith(expect.objectContaining({ text: ShareCardGenerator.buildShareText(drawnWave) }));
     vi.stubGlobal('navigator', {});
-    const dlOutcome = await ShareCardGenerator.share(sampleSummary, {
-      url: 'https://example.com',
-    });
-    expect(dlOutcome.status).toBe('downloaded');
-    expect(mockLink.click).toHaveBeenCalledTimes(1);
+    expect((await ShareCardGenerator.share(drawnWave)).status).toBe('downloaded');
+    expect(link.click).toHaveBeenCalledOnce();
   });
 });
-

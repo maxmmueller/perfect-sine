@@ -10,7 +10,7 @@ Welcome to the central technical documentation for **Perfect Sine**. Everything 
 | :--- | :--- | :--- |
 | **[Architecture & UML Diagrams](./ARCHITECTURE.md)** | Developers, Architects, Reviewers | Strict MVC layer rules, runtime bootstrap (`src/main.ts`), `VITE_DEV_TOOLS` isolation boundary, **UML Class Diagrams** (Core MVC, Math & Scoring Strategy Pattern, Session/Share/Dev), **UML State Machine Diagram**, and **UML Sequence Diagram**. |
 | **[Mathematics, Scoring & Demo Bot](./MATHEMATICS_AND_SCORING.md)** | Algorithm & Game-Feel Engineers | `TiltDetector` PCA + chord snapping, `CoordinateSystem`, `SineFitter` OLS regression & terminal hook trimming, `PeriodValidator` + `isZigzagWave`, `DeviationCalculator` ($\pm T/8$ Newton-Raphson), all 7 scoring classes (`UnifiedEnsembleScoreStrategy` & `ScoreStrategyManager`), and human-learned `DemoBot` kinematics. |
-| **[Development, Dev Isolation & Deployment](./DEVELOPMENT_AND_DEPLOYMENT.md)** | Maintainers, QA & DevOps | `.env.development` vs `.env.production`, Vite dynamic import stripping, VS Code one-click tasks, Curve Recorder & Image Exporter, Share Card & screenshot detection pipeline, Vitest V-Model `>= 80%` coverage gates, and GitHub Actions CI/CD. |
+| **[Development, Dev Isolation & Deployment](./DEVELOPMENT_AND_DEPLOYMENT.md)** | Maintainers, QA & DevOps | `.env.development` vs `.env.production`, Vite dynamic import stripping, VS Code one-click tasks, Curve Recorder & Image Exporter, Current-wave Share Card, idle eligibility guards & screenshot detection pipeline, Vitest V-Model `>= 80%` coverage gates, and GitHub Actions CI/CD. |
 | **[Engineering Guidelines](./AGENTS.md)** | Contributors & Coding Agents | Golden rules (English on GitHub, strict MVC DOM isolation, GoF design patterns, Kanban/PR workflow, V-Model coverage enforcement). |
 | **[Software Engineering Lecture Guide](./SOFTWARE_ENGINEERING_GUIDE.md)** | Students & Learners | Conceptual guide linking project practices to software engineering principles. |
 | **[Initial Domain Specification](./implementation.md)** | Historical Reference | Original early German specification outlining canvas layout, drawing constraints, highscore persistence, and initial scoring concepts. |
@@ -51,6 +51,15 @@ Welcome to the central technical documentation for **Perfect Sine**. Everything 
 ```
 
 ---
+
+## Brand Assets
+
+The full wordmark and small wave mark are available in
+[`public/brand`](../public/brand). They share outlined vector geometry with the
+runtime header, summary and share card. See the
+[brand asset workflow](./DEVELOPMENT_AND_DEPLOYMENT.md#shared-logos-and-browser-icons)
+and [`BrandView.ts`](../src/view/BrandView.ts). The earlier alternatives remain in
+[`design/logo-studies`](../design/logo-studies).
 
 ## Key Design Decisions
 

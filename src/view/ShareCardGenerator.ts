@@ -1,6 +1,7 @@
-import { SessionSummary } from '../model/SessionHistoryService';
+import { TEXT_FONT, METRIC_FONT } from './Typography';
+import { drawBrandLogo } from './BrandView';
+import { getNotebookPalette } from './ThemeView';
 import { Point, PointDeviation, StrokeEvaluation } from '../model/types';
-import { TiltDetector } from '../model/TiltDetector';
 
 export interface ShareStrokeSnapshot {
   readonly points: readonly Point[];
@@ -10,7 +11,6 @@ export interface ShareStrokeSnapshot {
 
 export interface ShareCardSnapshot {
   readonly stroke?: ShareStrokeSnapshot | null;
-  readonly sourceCanvas?: HTMLCanvasElement | null;
   readonly url?: string;
 }
 
@@ -35,8 +35,10 @@ interface RectBox {
 }
 
 const CARD_WIDTH = 960;
-const CARD_HEIGHT = 560;
-const PREVIEW_BOX: RectBox = { x: 36, y: 92, w: 516, h: 416 };
+const CARD_HEIGHT = 960;
+const PREVIEW_BOX: RectBox = { x: 60, y: 320, w: 840, h: 420 };
+const NO_WAVE_MESSAGE = 'Draw a wave before sharing.';
+type ShareableSnapshot = ShareCardSnapshot & { readonly stroke: ShareStrokeSnapshot };
 
 /**
  * Generates shareable Perfect Sine PNG cards and dispatches Web Share API,
@@ -46,26 +48,28 @@ export class ShareCardGenerator {
   public static readonly WIDTH = CARD_WIDTH;
   public static readonly HEIGHT = CARD_HEIGHT;
 
-  /**
-   * Builds a concise, formatted text summary for system share sheets or clipboard.
-   */
-  public static buildShareText(summary: SessionSummary, url?: string): string {
-    const cleanUrl = url && url.trim().length > 0 ? url.trim() : '';
-    const statsLine =
-      summary.totalAttempts > 0
-        ? `Perfect Sine — Personal Best: ${summary.highscore.toLocaleString()} pts | Avg Accuracy: ${summary.averageAccuracy}%`
-        : 'Perfect Sine';
+  public static canShare(snapshot: ShareCardSnapshot | null | undefined): snapshot is ShareableSnapshot {
+    return Boolean(snapshot?.stroke && snapshot.stroke.points.length >= 2);
+  }
 
-    return cleanUrl ? `${statsLine}\n${cleanUrl}` : statsLine;
+  /** Share text contains only the captured wave's result and its link. */
+  public static buildShareText(snapshot: ShareCardSnapshot): string {
+    if (!this.canShare(snapshot)) throw new Error(NO_WAVE_MESSAGE);
+    const evaluation = snapshot.stroke.evaluation;
+    const result = evaluation
+      ? `Perfect Sine — ${evaluation.accuracy.toFixed(1)}% | ${evaluation.score.toLocaleString()} pts`
+      : `Perfect Sine${snapshot.stroke.validationMessage ? ` — ${snapshot.stroke.validationMessage}` : ''}`;
+    const url = snapshot.url?.trim();
+    return url ? `${result}\n${url}` : result;
   }
 
   /**
-   * Renders a full Wave Summary PNG card to an offscreen canvas.
+   * Renders a current wave PNG card to an offscreen canvas.
    */
   public static renderShareCard(
-    summary: SessionSummary,
-    snapshot?: ShareCardSnapshot
+    snapshot: ShareCardSnapshot
   ): HTMLCanvasElement {
+    if (!this.canShare(snapshot)) throw new Error(NO_WAVE_MESSAGE);
     if (typeof document === 'undefined') {
       throw new Error('Share card rendering requires a DOM environment');
     }
@@ -80,16 +84,15 @@ export class ShareCardGenerator {
     }
 
     this.drawCardBackground(ctx);
-    this.drawHeader(ctx, summary, snapshot);
+    this.drawHeader(ctx, snapshot);
     this.drawWaveViewport(ctx, snapshot);
-    this.drawStatsGrid(ctx, summary);
     this.drawFooter(ctx, snapshot?.url);
 
     return canvas;
   }
 
-  public static toDataUrl(summary: SessionSummary, snapshot?: ShareCardSnapshot): string {
-    const canvas = this.renderShareCard(summary, snapshot);
+  public static toDataUrl(snapshot: ShareCardSnapshot): string {
+    const canvas = this.renderShareCard(snapshot);
     return canvas.toDataURL('image/png');
   }
 
@@ -107,16 +110,15 @@ export class ShareCardGenerator {
   }
 
   /**
-   * Triggers an immediate PNG download of the rendered Wave Summary card.
+   * Triggers an immediate PNG download of the rendered wave card.
    */
   public static downloadShareCard(
-    summary: SessionSummary,
-    snapshot?: ShareCardSnapshot,
-    filename: string = 'perfect-sine-summary.png'
+    snapshot: ShareCardSnapshot,
+    filename: string = 'perfect-sine-wave.png'
   ): boolean {
-    if (typeof document === 'undefined') return false;
+    if (!this.canShare(snapshot) || typeof document === 'undefined') return false;
 
-    const dataUrl = this.toDataUrl(summary, snapshot);
+    const dataUrl = this.toDataUrl(snapshot);
     const link = document.createElement('a');
     link.href = dataUrl;
     link.download = filename;
@@ -127,19 +129,19 @@ export class ShareCardGenerator {
   }
 
   /**
-   * Copies the Wave Summary card image (when ClipboardItem is supported)
-   * or falls back to copying formatted summary text + URL.
+   * Copies the current wave card image (when ClipboardItem is supported)
+   * or falls back to copying current wave result + URL.
    */
   public static async copyShareCard(
-    summary: SessionSummary,
-    snapshot?: ShareCardSnapshot
+    snapshot: ShareCardSnapshot
   ): Promise<ShareOutcome> {
-    const text = this.buildShareText(summary, snapshot?.url);
+    if (!this.canShare(snapshot)) return { status: 'error', message: NO_WAVE_MESSAGE };
+    const text = this.buildShareText(snapshot);
     const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
 
     if (clipboard && typeof clipboard.write === 'function' && typeof ClipboardItem !== 'undefined') {
       try {
-        const canvas = this.renderShareCard(summary, snapshot);
+        const canvas = this.renderShareCard(snapshot);
         const blob = await this.canvasToBlob(canvas);
         if (blob) {
           await clipboard.write([new ClipboardItem({ 'image/png': blob })]);
@@ -158,7 +160,7 @@ export class ShareCardGenerator {
         await clipboard.writeText(text);
         return {
           status: 'copied-text',
-          message: 'Summary text & link copied to clipboard!',
+          message: 'Wave result & link copied to clipboard!',
         };
       } catch {
         return {
@@ -179,13 +181,13 @@ export class ShareCardGenerator {
    * falling back cleanly to clipboard copy or PNG download on desktop browsers.
    */
   public static async share(
-    summary: SessionSummary,
-    snapshot?: ShareCardSnapshot
+    snapshot: ShareCardSnapshot
   ): Promise<ShareOutcome> {
+    if (!this.canShare(snapshot)) return { status: 'error', message: NO_WAVE_MESSAGE };
     const url = snapshot?.url ?? (typeof window !== 'undefined' ? window.location.href : undefined);
-    const text = this.buildShareText(summary, url);
+    const text = this.buildShareText({ ...snapshot, url });
     const title = 'Perfect Sine';
-    const canvas = this.renderShareCard(summary, snapshot);
+    const canvas = this.renderShareCard(snapshot);
     const blob = await this.canvasToBlob(canvas);
 
     const nav = typeof navigator !== 'undefined' ? navigator : undefined;
@@ -193,7 +195,7 @@ export class ShareCardGenerator {
       const baseData: ShareData = url ? { title, text, url } : { title, text };
 
       if (blob && typeof File !== 'undefined' && typeof nav.canShare === 'function') {
-        const file = new File([blob], 'perfect-sine-summary.png', { type: 'image/png' });
+        const file = new File([blob], 'perfect-sine-wave.png', { type: 'image/png' });
         const fileData: ShareData = { ...baseData, files: [file] };
         try {
           if (nav.canShare(fileData)) {
@@ -210,7 +212,7 @@ export class ShareCardGenerator {
 
       try {
         await nav.share(baseData);
-        return { status: 'shared', message: 'Wave summary shared!' };
+        return { status: 'shared', message: 'Wave shared!' };
       } catch (err) {
         if (this.isAbortError(err)) {
           return { status: 'cancelled', message: 'Share cancelled.' };
@@ -219,12 +221,12 @@ export class ShareCardGenerator {
     }
 
     // Desktop fallback when Web Share API is unavailable: copy image/text, or download PNG
-    const copyResult = await this.copyShareCard(summary, { ...snapshot, url });
+    const copyResult = await this.copyShareCard({ ...snapshot, url });
     if (copyResult.status === 'copied-image' || copyResult.status === 'copied-text') {
       return copyResult;
     }
 
-    if (this.downloadShareCard(summary, snapshot)) {
+    if (this.downloadShareCard(snapshot)) {
       return {
         status: 'downloaded',
         message: 'Web Share unavailable — downloaded PNG share card!',
@@ -242,106 +244,44 @@ export class ShareCardGenerator {
   }
 
   private static drawCardBackground(ctx: CanvasRenderingContext2D): void {
-    ctx.fillStyle = '#090d16';
+    ctx.fillStyle = getNotebookPalette().paper;
     ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-
-    // Subtle full-card graph paper grid
-    ctx.save();
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.06)';
-    ctx.lineWidth = 1;
-    const step = 36;
-    for (let x = 0; x <= CARD_WIDTH; x += step) {
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, 0);
-      ctx.lineTo(x + 0.5, CARD_HEIGHT);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= CARD_HEIGHT; y += step) {
-      ctx.beginPath();
-      ctx.moveTo(0, y + 0.5);
-      ctx.lineTo(CARD_WIDTH, y + 0.5);
-      ctx.stroke();
-    }
-    ctx.restore();
   }
 
   private static drawHeader(
     ctx: CanvasRenderingContext2D,
-    summary: SessionSummary,
-    snapshot?: ShareCardSnapshot
+    snapshot: ShareableSnapshot
   ): void {
     ctx.save();
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = '800 28px Inter, system-ui, -apple-system, sans-serif';
-    ctx.fillText('Perfect Sine', 36, 60);
-
-    // Optional top-right metric badge when numeric score exists
-    const evalData = snapshot?.stroke?.evaluation;
-    const badgeLabel = evalData
-      ? `Last · ${evalData.accuracy.toFixed(1)}% (${evalData.score.toLocaleString()} pts)`
-      : summary.highscore > 0
-        ? `Personal Best · ${summary.highscore.toLocaleString()} pts`
-        : null;
-
-    if (badgeLabel) {
-      ctx.font = '700 13px Inter, system-ui, -apple-system, sans-serif';
-      const badgeWidth = Math.min(340, ctx.measureText(badgeLabel).width + 32);
-      const badgeX = CARD_WIDTH - 36 - badgeWidth;
-      this.drawRoundedRect(ctx, badgeX, 34, badgeWidth, 34, 10);
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-      ctx.lineWidth = 1.25;
-      ctx.stroke();
-
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillText(badgeLabel, badgeX + 16, 56);
+    drawBrandLogo(ctx, 'full', 48, 32, 152, getNotebookPalette().ink);
+    ctx.textAlign = 'center';
+    const evaluation = snapshot?.stroke?.evaluation;
+    if (evaluation) {
+      const color = evaluation.accuracy >= 80 ? getNotebookPalette().green
+        : evaluation.accuracy >= 50 ? getNotebookPalette().amber : getNotebookPalette().red;
+      ctx.font = `600 136px ${METRIC_FONT}`;
+      ctx.fillStyle = color;
+      ctx.fillText(`${evaluation.accuracy.toFixed(1)}%`, CARD_WIDTH / 2, 224);
+      ctx.font = `600 32px ${METRIC_FONT}`;
+      ctx.fillStyle = getNotebookPalette().text;
+      ctx.fillText(`${evaluation.score.toLocaleString()} pts`, CARD_WIDTH / 2, 270);
+    } else if (snapshot?.stroke?.validationMessage) {
+      ctx.font = `500 32px ${TEXT_FONT}`;
+      ctx.fillStyle = getNotebookPalette().red;
+      ctx.fillText(snapshot.stroke.validationMessage, CARD_WIDTH / 2, 220, CARD_WIDTH - 120);
     }
     ctx.restore();
   }
 
   private static drawWaveViewport(
     ctx: CanvasRenderingContext2D,
-    snapshot?: ShareCardSnapshot
+    snapshot: ShareableSnapshot
   ): void {
     ctx.save();
-    this.drawRoundedRect(ctx, PREVIEW_BOX.x, PREVIEW_BOX.y, PREVIEW_BOX.w, PREVIEW_BOX.h, 16);
-    ctx.fillStyle = '#0f172a';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    this.drawRoundedRect(ctx, PREVIEW_BOX.x, PREVIEW_BOX.y, PREVIEW_BOX.w, PREVIEW_BOX.h, 0);
     ctx.clip();
 
-    // Fine grid inside wave viewport
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.08)';
-    ctx.lineWidth = 1;
-    const step = 32;
-    for (let x = PREVIEW_BOX.x; x <= PREVIEW_BOX.x + PREVIEW_BOX.w; x += step) {
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, PREVIEW_BOX.y);
-      ctx.lineTo(x + 0.5, PREVIEW_BOX.y + PREVIEW_BOX.h);
-      ctx.stroke();
-    }
-    for (let y = PREVIEW_BOX.y; y <= PREVIEW_BOX.y + PREVIEW_BOX.h; y += step) {
-      ctx.beginPath();
-      ctx.moveTo(PREVIEW_BOX.x, y + 0.5);
-      ctx.lineTo(PREVIEW_BOX.x + PREVIEW_BOX.w, y + 0.5);
-      ctx.stroke();
-    }
-
-    const stroke = snapshot?.stroke;
-    if (stroke && stroke.points.length >= 2) {
-      this.drawCapturedStroke(ctx, stroke);
-    } else if (
-      snapshot?.sourceCanvas &&
-      snapshot.sourceCanvas.width > 0 &&
-      snapshot.sourceCanvas.height > 0
-    ) {
-      this.drawLiveCanvasSnapshot(ctx, snapshot.sourceCanvas);
-    } else {
-      this.drawFallbackShowcaseWave(ctx);
-    }
+    this.drawCapturedStroke(ctx, snapshot.stroke);
 
     ctx.restore();
   }
@@ -378,38 +318,10 @@ export class ShareCardGenerator {
       y: targetCy + (p.y - cy) * scale,
     });
 
-    // Optional reference ideal sine curve
-    const fit = stroke.evaluation?.fittedSine;
-    if (fit) {
-      const localPoints = TiltDetector.transformPoints(stroke.points, fit.tilt);
-      let lMinX = Infinity;
-      let lMaxX = -Infinity;
-      for (const lp of localPoints) {
-        if (lp.x < lMinX) lMinX = lp.x;
-        if (lp.x > lMaxX) lMaxX = lp.x;
-      }
-
-      ctx.save();
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 6]);
-      ctx.beginPath();
-      const samples = 90;
-      for (let i = 0; i <= samples; i++) {
-        const lx = lMinX + ((lMaxX - lMinX) * i) / samples;
-        const ly = fit.amplitude * Math.sin(fit.frequency * lx + fit.phase) + fit.offset;
-        const sp = mapPt(TiltDetector.inverseTransformPoint({ x: lx, y: ly }, fit.tilt));
-        if (i === 0) ctx.moveTo(sp.x, sp.y);
-        else ctx.lineTo(sp.x, sp.y);
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Color-coded user stroke if evaluated, else crisp cyan line
+    // Preserve the evaluated stroke colors; keep the share image free of fitting overlays.
     const deviations: readonly PointDeviation[] | undefined = stroke.evaluation?.deviations;
     if (deviations && deviations.length === stroke.points.length) {
-      ctx.lineWidth = 4;
+      ctx.lineWidth = 5;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       for (let i = 1; i < deviations.length; i++) {
@@ -422,8 +334,8 @@ export class ShareCardGenerator {
         ctx.stroke();
       }
     } else {
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 4;
+      ctx.strokeStyle = getNotebookPalette().ink;
+      ctx.lineWidth = 5;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
@@ -436,100 +348,16 @@ export class ShareCardGenerator {
     }
   }
 
-  private static drawLiveCanvasSnapshot(
-    ctx: CanvasRenderingContext2D,
-    sourceCanvas: HTMLCanvasElement
-  ): void {
-    try {
-      const ratio = Math.min(
-        PREVIEW_BOX.w / sourceCanvas.width,
-        PREVIEW_BOX.h / sourceCanvas.height
-      );
-      const drawW = sourceCanvas.width * ratio;
-      const drawH = sourceCanvas.height * ratio;
-      const dx = PREVIEW_BOX.x + (PREVIEW_BOX.w - drawW) / 2;
-      const dy = PREVIEW_BOX.y + (PREVIEW_BOX.h - drawH) / 2;
-      ctx.drawImage(sourceCanvas, dx, dy, drawW, drawH);
-    } catch {
-      this.drawFallbackShowcaseWave(ctx);
-    }
-  }
-
-  private static drawFallbackShowcaseWave(ctx: CanvasRenderingContext2D): void {
-    const startX = PREVIEW_BOX.x + 48;
-    const endX = PREVIEW_BOX.x + PREVIEW_BOX.w - 48;
-    const midY = PREVIEW_BOX.y + PREVIEW_BOX.h / 2;
-    const amp = 82;
-
-    const grad = ctx.createLinearGradient(startX, midY, endX, midY);
-    grad.addColorStop(0, '#22c55e');
-    grad.addColorStop(0.5, '#38bdf8');
-    grad.addColorStop(1, '#22c55e');
-
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 4.5;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    const steps = 120;
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const x = startX + (endX - startX) * t;
-      const y = midY - Math.sin(t * Math.PI * 3) * amp;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-  }
-
-  private static drawStatsGrid(ctx: CanvasRenderingContext2D, summary: SessionSummary): void {
-    const startX = 574;
-    const startY = 92;
-    const gap = 14;
-    const cardW = 168;
-    const cardH = (PREVIEW_BOX.h - gap * 2) / 3;
-
-    const items: ReadonlyArray<{ label: string; value: string; highlight?: boolean }> = [
-      { label: 'PERSONAL BEST', value: `${summary.highscore.toLocaleString()} pts`, highlight: true },
-      { label: 'AVG ACCURACY', value: `${summary.averageAccuracy}%` },
-      { label: 'TOTAL ATTEMPTS', value: `${summary.totalAttempts}` },
-      { label: 'TOTAL CYCLES', value: `${summary.totalCyclesDrawn.toFixed(1)} waves` },
-      { label: 'CONSISTENCY', value: `${summary.consistencyScore} / 100` },
-      { label: 'BEST STREAK (≥80%)', value: `${summary.streakCount} 🔥` },
-    ];
-
-    items.forEach((item, index) => {
-      const col = index % 2;
-      const row = Math.floor(index / 2);
-      const x = startX + col * (cardW + gap);
-      const y = startY + row * (cardH + gap);
-
-      this.drawRoundedRect(ctx, x, y, cardW, cardH, 12);
-      ctx.fillStyle = item.highlight ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255, 255, 255, 0.03)';
-      ctx.fill();
-      ctx.strokeStyle = item.highlight
-        ? 'rgba(56, 189, 248, 0.38)'
-        : 'rgba(255, 255, 255, 0.08)';
-      ctx.lineWidth = 1.25;
-      ctx.stroke();
-
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '700 10px Inter, system-ui, -apple-system, sans-serif';
-      ctx.fillText(item.label, x + 14, y + 32);
-
-      ctx.fillStyle = item.highlight ? '#38bdf8' : '#f8fafc';
-      ctx.font = '800 22px Inter, system-ui, -apple-system, sans-serif';
-      ctx.fillText(this.truncate(item.value, 14), x + 14, y + 74);
-    });
-  }
-
   private static drawFooter(ctx: CanvasRenderingContext2D, url?: string): void {
+    drawBrandLogo(ctx, 'mark', 48, 894, 32, getNotebookPalette().ink);
     if (!url) return;
     ctx.save();
     const displayUrl = this.formatDisplayUrl(url);
-    ctx.font = '600 12px Inter, system-ui, -apple-system, sans-serif';
-    const textWidth = ctx.measureText(displayUrl).width;
-    ctx.fillStyle = '#64748b';
-    ctx.fillText(displayUrl, CARD_WIDTH - 36 - textWidth, 536);
+    ctx.font = `400 20px ${TEXT_FONT}`;
+    ctx.fillStyle = getNotebookPalette().muted;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(displayUrl, 92, 910);
     ctx.restore();
   }
 

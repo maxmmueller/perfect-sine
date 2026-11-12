@@ -3,14 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#1c252c" />
     <title>Perfect Sine</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="./brand/sine-mark-32.png" />
+    <link rel="icon" type="image/svg+xml" href="./brand/sine-mark.svg" />
+    <link rel="apple-touch-icon" href="./brand/apple-touch-icon.png" />
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
     <div id="app">
       <header class="app-header">
         <div class="logo-area">
-          <span class="app-title">Perfect Sine</span>
+          <span class="app-title brand-logo" data-brand="full">Perfect Sine</span>
         </div>
         <div class="hud-metrics">
           <div class="hud-pill" id="hud-score-pill">
@@ -21,7 +26,7 @@
             <span class="hud-label">BEST</span>
             <span class="hud-val" id="hud-highscore">0 pts</span>
           </div>
-          <button id="wrapped-btn" class="share-btn" aria-label="Share" title="Share (S)">
+          <button id="wrapped-btn" class="share-btn" disabled aria-label="Share" title="Share (S)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
               <polyline points="16 6 12 2 8 6"></polyline>
@@ -35,68 +40,44 @@
         <canvas id="sine-canvas"></canvas>
       </main>
 
-      <!-- Spotify-Wrapped-Style Summary Modal -->
+      <!-- Share only the current completed drawing and its own result -->
       <div id="wrapped-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div class="modal-backdrop"></div>
         <div class="modal-card">
-          <button id="modal-close-x" class="modal-close-btn" aria-label="Close Summary">✕</button>
-          
+          <button id="modal-close-x" class="modal-close-btn" aria-label="Close Share">✕</button>
+
           <div class="modal-header">
-            <h2 id="modal-title">Perfect Sine</h2>
+            <h2 id="modal-title" class="sr-only">Perfect Sine</h2>
           </div>
 
-          <div class="stats-grid">
-            <div class="stat-card highlight">
-              <span class="stat-label">Personal Best</span>
-              <span id="stat-highscore" class="stat-val">0 pts</span>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">Avg Accuracy</span>
-              <span id="stat-avg-accuracy" class="stat-val">0%</span>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">Total Attempts</span>
-              <span id="stat-attempts" class="stat-val">0</span>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">Total Cycles</span>
-              <span id="stat-cycles" class="stat-val">0.0</span>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">Consistency</span>
-              <span id="stat-consistency" class="stat-val">100 / 100</span>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">Best Streak (≥80%)</span>
-              <span id="stat-streak" class="stat-val">0</span>
-            </div>
-          </div>
+          <div class="summary-body">
+            <div class="share-section">
+              <div class="share-preview-strip hidden" id="modal-share-preview-wrap">
+                <img id="modal-share-preview" class="share-preview-img" alt="Perfect Sine" />
+              </div>
 
-          <div class="share-preview-strip hidden" id="modal-share-preview-wrap">
-            <img id="modal-share-preview" class="share-preview-img" alt="Perfect Sine" />
+              <div class="share-actions-row">
+                <button id="modal-share-btn" class="btn-share-primary" title="Share wave card & stats">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                    <polyline points="16 6 12 2 8 6"></polyline>
+                    <line x1="12" y1="2" x2="12" y2="15"></line>
+                  </svg>
+                  <span>Share</span>
+                </button>
+                <button id="modal-screenshot-btn" class="btn-secondary btn-compact" title="Save Share Card as PNG image">
+                  Save PNG
+                </button>
+                <button id="modal-copy-btn" class="btn-secondary btn-compact" title="Copy wave card or result to clipboard">
+                  Copy
+                </button>
+              </div>
+              <p id="modal-share-status" class="modal-share-status" aria-live="polite"></p>
+            </div>
           </div>
-
-          <div class="share-actions-row">
-            <button id="modal-share-btn" class="btn-share-primary" title="Share wave card & stats">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
-                <polyline points="16 6 12 2 8 6"></polyline>
-                <line x1="12" y1="2" x2="12" y2="15"></line>
-              </svg>
-              <span>Share</span>
-            </button>
-            <button id="modal-screenshot-btn" class="btn-secondary btn-compact" title="Save Share Card as PNG image (Shortcut: S)">
-              Save PNG
-            </button>
-            <button id="modal-copy-btn" class="btn-secondary btn-compact" title="Copy Share Card or summary to clipboard">
-              Copy
-            </button>
-          </div>
-          <p id="modal-share-status" class="modal-share-status" aria-live="polite"></p>
 
           <div class="modal-actions">
             <button id="modal-resume-btn" class="btn-primary">Keep Drawing</button>
-            <button id="modal-reset-btn" class="btn-secondary">Reset Stats</button>
           </div>
         </div>
       </div>
