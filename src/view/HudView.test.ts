@@ -1,283 +1,152 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { HudView } from './HudView';
-import { ShareCardGenerator } from './ShareCardGenerator';
+import { ShareCardGenerator, type ShareCardSnapshot } from './ShareCardGenerator';
 import { SessionHistoryService, MemoryStorageAdapter } from '../model/SessionHistoryService';
+import { drawnWave } from './share.test-fixtures';
 
-interface MockElement {
-  id: string;
-  textContent: string;
-  src?: string;
-  classList: {
-    classes: Set<string>;
-    add: (cls: string) => void;
-    remove: (cls: string) => void;
-    contains: (cls: string) => boolean;
+type TestEvent = {
+  key?: string; code?: string; ctrlKey?: boolean; shiftKey?: boolean; metaKey?: boolean;
+  altKey?: boolean; repeat?: boolean; target?: MockElement | { tagName?: string; isContentEditable?: boolean };
+  preventDefault?: () => void; stopPropagation?: () => void;
+};
+class MockElement {
+  textContent = ''; src = ''; alt = ''; disabled = false;
+  private classes: Set<string>;
+  readonly listeners: Record<string, Array<(event: TestEvent) => void>> = {};
+  readonly classList = {
+    add: (name: string) => { this.classes.add(name); },
+    remove: (name: string) => { this.classes.delete(name); },
+    contains: (name: string) => this.classes.has(name),
   };
-  listeners: Record<string, ((e?: any) => void)[]>;
-  addEventListener: (event: string, handler: (e?: any) => void) => void;
-  click: (event?: any) => void;
+  constructor(classes: string[] = []) { this.classes = new Set(classes); }
+  addEventListener(type: string, listener: (event: TestEvent) => void) {
+    (this.listeners[type] ??= []).push(listener);
+  }
+  click(event: TestEvent = { target: this, stopPropagation: () => {} }) {
+    if (!this.disabled) this.listeners.click?.forEach(handler => handler(event));
+  }
 }
 
-const createMockElement = (id: string, initialClasses: string[] = []): MockElement => {
-  const classes = new Set<string>(initialClasses);
-  const listeners: Record<string, ((e?: any) => void)[]> = {};
+describe('HudView: sharing eligibility and current-wave actions', () => {
+  let session: SessionHistoryService;
+  let hud: HudView;
+  let elements: Map<string, MockElement>;
+  let listeners: Record<string, Array<(event: TestEvent) => void>>;
+  let snapshot: ShareCardSnapshot | null;
 
-  const el: MockElement = {
-    id,
-    textContent: '',
-    classList: {
-      classes,
-      add: (cls: string) => classes.add(cls),
-      remove: (cls: string) => classes.delete(cls),
-      contains: (cls: string) => classes.has(cls),
-    },
-    listeners,
-    addEventListener: (event: string, handler: (e?: any) => void) => {
-      if (!listeners[event]) listeners[event] = [];
-      listeners[event].push(handler);
-    },
-    click: (event?: any) => {
-      const handlers = listeners['click'] || [];
-      handlers.forEach((h) => h(event ?? { target: el, stopPropagation: vi.fn() }));
-    },
-  };
-
-  return el;
-};
-
-describe('HudView (HUD Overlay & Spotify-Wrapped Modal - Tasks 6.2 & 6.3)', () => {
-  let sessionService: SessionHistoryService;
-  let hudView: HudView;
-  let elementMap: Map<string, MockElement>;
-  let windowListeners: Record<string, ((e?: any) => void)[]>;
+  const element = (id: string) => elements.get(id)!;
+  const emit = (type: string, event: TestEvent = {}) => listeners[type]?.forEach(handler => handler(event));
+  const finishDrawing = () => { snapshot = drawnWave; hud.updateShareAvailability(); };
 
   beforeEach(() => {
-    elementMap = new Map();
-    windowListeners = {};
-
-    const ids = [
-      'hud-current-score',
-      'hud-highscore',
-      'wrapped-btn',
-      'wrapped-modal',
-      'modal-close-x',
-      'stat-highscore',
-      'stat-avg-accuracy',
-      'stat-attempts',
-      'stat-cycles',
-      'stat-consistency',
-      'stat-streak',
-      'modal-resume-btn',
-      'modal-reset-btn',
-      'modal-share-btn',
-      'modal-screenshot-btn',
-      'modal-copy-btn',
-      'modal-share-status',
-      'modal-share-preview',
-      'modal-share-preview-wrap',
-    ];
-
-    ids.forEach((id) => {
-      const initialClasses =
-        id === 'wrapped-modal' || id === 'modal-share-preview-wrap' ? ['hidden'] : [];
-      elementMap.set(id, createMockElement(id, initialClasses));
-    });
-
-    vi.stubGlobal('document', {
-      getElementById: (id: string) => elementMap.get(id) ?? null,
-    });
-
+    snapshot = null; listeners = {}; elements = new Map();
+    for (const id of ['hud-current-score', 'hud-highscore', 'wrapped-btn', 'wrapped-modal',
+      'modal-close-x', 'modal-resume-btn', 'modal-share-btn', 'modal-screenshot-btn', 'modal-copy-btn',
+      'modal-share-status', 'modal-share-preview', 'modal-share-preview-wrap']) {
+      elements.set(id, new MockElement(id === 'wrapped-modal' || id === 'modal-share-preview-wrap' ? ['hidden'] : []));
+    }
+    vi.stubGlobal('document', { getElementById: (id: string) => elements.get(id) ?? null });
     vi.stubGlobal('window', {
       location: { href: 'https://perfect-sine.test/' },
-      addEventListener: (event: string, handler: (e?: any) => void) => {
-        if (!windowListeners[event]) windowListeners[event] = [];
-        windowListeners[event].push(handler);
-      },
+      addEventListener: (type: string, callback: (event: TestEvent) => void) => { (listeners[type] ??= []).push(callback); },
     });
+    vi.spyOn(ShareCardGenerator, 'toDataUrl').mockReturnValue('data:image/png;base64,currentWave');
+    session = new SessionHistoryService(new MemoryStorageAdapter());
+    hud = new HudView(session, { getWaveSnapshot: () => snapshot });
+  });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-    sessionService = new SessionHistoryService(new MemoryStorageAdapter());
-    hudView = new HudView(sessionService);
+  it('disables sharing on idle even when session history contains earlier attempts', () => {
+    session.addAttempt({ score: 9000, accuracy: 99, cycles: 8, r2: .99, amplitude: 70 });
+    expect(element('hud-highscore').textContent).toBe('9,000 pts');
+    expect(element('wrapped-btn').disabled).toBe(true);
+    element('wrapped-btn').click(); hud.openModal();
+    expect(hud.isModalOpen()).toBe(false);
+    expect(ShareCardGenerator.toDataUrl).not.toHaveBeenCalled();
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
+  it('blocks S, screenshot shortcuts, keyup and beforeprint without an own completed drawing', () => {
+    for (const event of [{ key: 's' }, { key: 'PrintScreen' }, { key: 'S', ctrlKey: true, shiftKey: true },
+      { key: '4', code: 'Digit4', metaKey: true, shiftKey: true }]) emit('keydown', event);
+    emit('keyup', { key: 'PrintScreen' }); emit('beforeprint');
+    expect(hud.isModalOpen()).toBe(false);
+    expect(ShareCardGenerator.toDataUrl).not.toHaveBeenCalled();
   });
 
-  it('should initialize with default zeroed HUD values', () => {
-    expect(elementMap.get('hud-current-score')!.textContent).toBe('-');
-    expect(elementMap.get('hud-highscore')!.textContent).toBe('0 pts');
-    expect(hudView.isModalOpen()).toBe(false);
+  it('guards direct export handlers as well as the disabled button', async () => {
+    const share = vi.spyOn(ShareCardGenerator, 'share');
+    const copy = vi.spyOn(ShareCardGenerator, 'copyShareCard');
+    const download = vi.spyOn(ShareCardGenerator, 'downloadShareCard');
+    await hud.handleShare(); await hud.handleCopy(); hud.handleDownloadScreenshot();
+    expect(share).not.toHaveBeenCalled(); expect(copy).not.toHaveBeenCalled(); expect(download).not.toHaveBeenCalled();
   });
 
-  it('should update HUD and modal content reactively when an attempt is added', () => {
-    sessionService.addAttempt({
-      score: 920,
-      accuracy: 94.5,
-      cycles: 1.8,
-      r2: 0.98,
-      amplitude: 50,
-    });
-
-    expect(elementMap.get('hud-current-score')!.textContent).toBe('920 pts');
-    expect(elementMap.get('hud-highscore')!.textContent).toBe('920 pts');
-    expect(elementMap.get('stat-highscore')!.textContent).toBe('920 pts');
-    expect(elementMap.get('stat-avg-accuracy')!.textContent).toBe('94.5%');
-    expect(elementMap.get('stat-attempts')!.textContent).toBe('1');
-    expect(elementMap.get('stat-streak')!.textContent).toBe('1 🔥');
+  it('enables sharing only after a drawing and previews precisely that snapshot', () => {
+    finishDrawing(); expect(element('wrapped-btn').disabled).toBe(false);
+    element('wrapped-btn').click();
+    expect(hud.isModalOpen()).toBe(true);
+    expect(ShareCardGenerator.toDataUrl).toHaveBeenCalledWith(drawnWave);
+    expect(element('modal-share-preview').src).toBe('data:image/png;base64,currentWave');
+    expect(element('modal-share-preview').alt).toContain('94.6%');
   });
 
-  it('should open and close the Wrapped modal', () => {
-    expect(hudView.isModalOpen()).toBe(false);
-
-    hudView.openModal();
-    expect(hudView.isModalOpen()).toBe(true);
-
-    hudView.closeModal();
-    expect(hudView.isModalOpen()).toBe(false);
+  it('disables sharing and closes a stale dialog when the current drawing is cleared or a new one begins', () => {
+    finishDrawing(); hud.openModal(); snapshot = null; hud.updateShareAvailability();
+    expect(element('wrapped-btn').disabled).toBe(true);
+    expect(hud.isModalOpen()).toBe(false);
+    emit('keydown', { key: 's' }); expect(hud.isModalOpen()).toBe(false);
   });
 
-  it('should open modal when wrapped-btn is clicked', () => {
-    const wrappedBtn = elementMap.get('wrapped-btn')!;
-    wrappedBtn.click();
-    expect(hudView.isModalOpen()).toBe(true);
+  it('does not make a single-point click shareable', () => {
+    snapshot = { stroke: { points: [{ x: 10, y: 10 }], evaluation: null } };
+    hud.updateShareAvailability(); hud.openModal();
+    expect(element('wrapped-btn').disabled).toBe(true);
+    expect(hud.isModalOpen()).toBe(false);
   });
 
-  it('should close modal when close button (✕) or resume button is clicked', () => {
-    hudView.openModal();
-    expect(hudView.isModalOpen()).toBe(true);
-
-    const closeBtn = elementMap.get('modal-close-x')!;
-    closeBtn.click();
-    expect(hudView.isModalOpen()).toBe(false);
-
-    hudView.openModal();
-    const resumeBtn = elementMap.get('modal-resume-btn')!;
-    resumeBtn.click();
-    expect(hudView.isModalOpen()).toBe(false);
+  it('can share an invalid completed attempt with its validation message', () => {
+    snapshot = { stroke: { points: [{ x: 10, y: 10 }, { x: 50, y: 10 }], evaluation: null, validationMessage: 'Sine Wave Too Flat' } };
+    hud.updateShareAvailability(); element('wrapped-btn').click();
+    expect(hud.isModalOpen()).toBe(true);
+    expect(ShareCardGenerator.toDataUrl).toHaveBeenCalledWith(expect.objectContaining({ stroke: snapshot.stroke }));
   });
 
-  it('should close modal when clicking the backdrop', () => {
-    hudView.openModal();
-    const modal = elementMap.get('wrapped-modal')!;
-    // Backdrop click simulation
-    modal.click({ target: modal });
-    expect(hudView.isModalOpen()).toBe(false);
+  it('keeps normal shortcut behavior once a completed drawing exists', () => {
+    finishDrawing();
+    for (const event of [{ key: 'PrintScreen' }, { key: 'S', ctrlKey: true, shiftKey: true },
+      { key: '4', code: 'Digit4', metaKey: true, shiftKey: true }]) {
+      emit('keydown', event); expect(hud.isModalOpen()).toBe(true); hud.closeModal();
+    }
+    emit('keyup', { key: 'PrintScreen' }); expect(hud.isModalOpen()).toBe(true); hud.closeModal();
+    emit('beforeprint'); expect(hud.isModalOpen()).toBe(true); hud.closeModal();
+    const preventDefault = vi.fn(); emit('keydown', { key: 's', preventDefault });
+    expect(hud.isModalOpen()).toBe(true); expect(preventDefault).toHaveBeenCalledOnce();
   });
 
-  it('should close modal on Escape key press', () => {
-    hudView.openModal();
-    expect(hudView.isModalOpen()).toBe(true);
-
-    const keydownHandlers = windowListeners['keydown'] || [];
-    keydownHandlers.forEach((h) => h({ key: 'Escape' }));
-    expect(hudView.isModalOpen()).toBe(false);
+  it('ignores shortcuts while editing and preserves browser Ctrl+S', () => {
+    finishDrawing(); emit('keydown', { key: 's', target: { tagName: 'INPUT' } });
+    emit('keydown', { key: 's', target: { isContentEditable: true } });
+    emit('keydown', { key: 's', ctrlKey: true });
+    expect(hud.isModalOpen()).toBe(false);
   });
 
-  it('should reset session stats when reset button is clicked', () => {
-    sessionService.addAttempt({
-      score: 800,
-      accuracy: 85,
-      cycles: 1.0,
-      r2: 0.9,
-      amplitude: 40,
-    });
-    expect(sessionService.getHighscore()).toBe(800);
-
-    const resetBtn = elementMap.get('modal-reset-btn')!;
-    resetBtn.click();
-
-    expect(sessionService.getAttempts()).toHaveLength(0);
-    expect(sessionService.getHighscore()).toBe(0);
-    expect(elementMap.get('hud-highscore')!.textContent).toBe('0 pts');
+  it('supports closing with X, resume, Escape and the backdrop', () => {
+    finishDrawing();
+    for (const id of ['modal-close-x', 'modal-resume-btn', 'wrapped-modal']) {
+      hud.openModal(); element(id).click(); expect(hud.isModalOpen()).toBe(false);
+    }
+    hud.openModal(); emit('keydown', { key: 'Escape' }); expect(hud.isModalOpen()).toBe(false);
   });
 
-  it('opens share modal on screenshot shortcuts (PrintScreen, Ctrl+Shift+S, Cmd+Shift+4) and beforeprint', () => {
-    const keydownHandlers = windowListeners['keydown'] || [];
-    const keyupHandlers = windowListeners['keyup'] || [];
-    const beforeprintHandlers = windowListeners['beforeprint'] || [];
-
-    // PrintScreen on keydown
-    keydownHandlers.forEach((h) => h({ key: 'PrintScreen', code: 'PrintScreen' }));
-    expect(hudView.isModalOpen()).toBe(true);
-    expect(elementMap.get('modal-share-status')!.textContent).toBe('');
-    hudView.closeModal();
-
-    // PrintScreen on keyup
-    keyupHandlers.forEach((h) => h({ key: 'PrintScreen', code: 'PrintScreen' }));
-    expect(hudView.isModalOpen()).toBe(true);
-    hudView.closeModal();
-
-    // Ctrl+Shift+S (Firefox/Edge screenshot)
-    keydownHandlers.forEach((h) => h({ key: 'S', ctrlKey: true, shiftKey: true }));
-    expect(hudView.isModalOpen()).toBe(true);
-    hudView.closeModal();
-
-    // Cmd+Shift+4 (macOS screenshot chord when forwarded)
-    keydownHandlers.forEach((h) => h({ key: '4', code: 'Digit4', metaKey: true, shiftKey: true }));
-    expect(hudView.isModalOpen()).toBe(true);
-    hudView.closeModal();
-
-    // beforeprint
-    beforeprintHandlers.forEach((h) => h({}));
-    expect(hudView.isModalOpen()).toBe(true);
-  });
-
-  it('opens share modal on bare S shortcut unless typing in an editable element', () => {
-    const keydownHandlers = windowListeners['keydown'] || [];
-
-    // Should ignore typing 's' inside input / textarea / contentEditable
-    keydownHandlers.forEach((h) => h({ key: 's', target: { tagName: 'INPUT' } }));
-    expect(hudView.isModalOpen()).toBe(false);
-
-    keydownHandlers.forEach((h) => h({ key: 's', target: { isContentEditable: true } }));
-    expect(hudView.isModalOpen()).toBe(false);
-
-    // Should NOT intercept Ctrl+S (browser Save Page)
-    keydownHandlers.forEach((h) => h({ key: 's', ctrlKey: true }));
-    expect(hudView.isModalOpen()).toBe(false);
-
-    // Bare 's' opens modal & prevents default
-    const preventDefault = vi.fn();
-    keydownHandlers.forEach((h) => h({ key: 's', preventDefault }));
-    expect(hudView.isModalOpen()).toBe(true);
-    expect(preventDefault).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders share preview on open and executes real share, PNG save, and clipboard copy actions', async () => {
-    const previewSpy = vi
-      .spyOn(ShareCardGenerator, 'toDataUrl')
-      .mockReturnValue('data:image/png;base64,previewMock');
-    const shareSpy = vi
-      .spyOn(ShareCardGenerator, 'share')
-      .mockResolvedValue({ status: 'shared', message: 'Wave card shared!' });
-    const downloadSpy = vi
-      .spyOn(ShareCardGenerator, 'downloadShareCard')
-      .mockReturnValue(true);
-    const copySpy = vi
-      .spyOn(ShareCardGenerator, 'copyShareCard')
-      .mockResolvedValue({ status: 'copied-image', message: 'Share card image copied to clipboard!' });
-
-    hudView.openModal();
-
-    expect(previewSpy).toHaveBeenCalledTimes(1);
-    expect(elementMap.get('modal-share-preview')!.src).toBe('data:image/png;base64,previewMock');
-    expect(elementMap.get('modal-share-preview-wrap')!.classList.contains('hidden')).toBe(false);
-
-    elementMap.get('modal-share-btn')!.click();
-    await Promise.resolve();
-    expect(shareSpy).toHaveBeenCalledTimes(1);
-    expect(elementMap.get('modal-share-status')!.textContent).toBe('Wave card shared!');
-
-    elementMap.get('modal-screenshot-btn')!.click();
-    expect(downloadSpy).toHaveBeenCalledTimes(1);
-    expect(elementMap.get('modal-share-status')!.textContent).toBe('Saved Share Card PNG!');
-
-    elementMap.get('modal-copy-btn')!.click();
-    await Promise.resolve();
-    expect(copySpy).toHaveBeenCalledTimes(1);
-    expect(elementMap.get('modal-share-status')!.textContent).toBe(
-      'Share card image copied to clipboard!'
-    );
+  it('uses only the current snapshot for native sharing, PNG saving and clipboard copying', async () => {
+    finishDrawing(); session.addAttempt({ score: 9000, accuracy: 99, cycles: 8, r2: .99, amplitude: 70 });
+    const share = vi.spyOn(ShareCardGenerator, 'share').mockResolvedValue({ status: 'shared', message: 'Wave shared!' });
+    const copy = vi.spyOn(ShareCardGenerator, 'copyShareCard').mockResolvedValue({ status: 'copied-image', message: 'Copied' });
+    const download = vi.spyOn(ShareCardGenerator, 'downloadShareCard').mockReturnValue(true);
+    hud.openModal();
+    await hud.handleShare(); await hud.handleCopy(); hud.handleDownloadScreenshot();
+    expect(share).toHaveBeenCalledWith(drawnWave); expect(copy).toHaveBeenCalledWith(drawnWave);
+    expect(download).toHaveBeenCalledWith(drawnWave);
+    expect(element('modal-share-status').textContent).toBe('Saved Share Card PNG!');
   });
 });

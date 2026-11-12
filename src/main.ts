@@ -1,6 +1,7 @@
 import { GameStateMachine } from './model/GameStateMachine';
 import { StrokeBuffer } from './model/StrokeBuffer';
 import { CanvasView } from './view/CanvasView';
+import { mountBrandLogos } from './view/BrandView';
 import { DrawingController } from './controller/DrawingController';
 import { SessionHistoryService } from './model/SessionHistoryService';
 import { HudView } from './view/HudView';
@@ -8,6 +9,7 @@ import { UnifiedEnsembleScoreStrategy } from './model/scoring/UnifiedEnsembleSco
 import type { DevStrokePayload } from './dev/setupDevTools';
 
 function initializeApp(): void {
+  mountBrandLogos();
   const canvas = document.getElementById('sine-canvas') as HTMLCanvasElement;
   if (!canvas) {
     throw new Error('Canvas element #sine-canvas not found');
@@ -44,11 +46,15 @@ function initializeApp(): void {
   });
 
   const hudView = new HudView(sessionService, {
-    getWaveSnapshot: () => ({
-      stroke: controller.getLastDrawnStroke(),
-      sourceCanvas: canvas,
-      url: typeof window !== 'undefined' ? window.location.href : undefined,
-    }),
+    getWaveSnapshot: () => stateMachine.getState() === 'LOCKED' && !controller.isDemoPlaying()
+      ? { stroke: controller.getLastDrawnStroke(), url: window.location.href }
+      : null,
+  });
+
+  stateMachine.subscribe((state) => {
+    // The controller captures the completed stroke just after transitioning to LOCKED.
+    if (state === 'LOCKED') queueMicrotask(() => hudView.updateShareAvailability());
+    else hudView.updateShareAvailability();
   });
 
   // Load Curve Recorder and debug hooks only in dev-tools-enabled builds

@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "export-curves": "vite-node scripts/export_curve_images.ts"
+    "export-curves": "vite-node scripts/export_curve_images.ts",
+    "export-brand": "vite-node scripts/export_brand_assets.ts"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.8",

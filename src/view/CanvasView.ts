@@ -1,3 +1,5 @@
+import { TEXT_FONT, METRIC_FONT } from './Typography';
+import { getNotebookPalette } from './ThemeView';
 import { Point, PointDeviation } from '../model/types';
 import { ScoreAnimationState, ScoreAnimationTier } from './ScoreCalculationAnimator';
 
@@ -55,7 +57,7 @@ export class CanvasView {
   public drawBackgroundGrid(): void {
     const gridSize = 36;
     this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(148, 163, 184, 0.08)';
+    this.ctx.strokeStyle = getNotebookPalette().grid;
     this.ctx.lineWidth = 1;
 
     for (let x = 0; x <= this.width; x += gridSize) {
@@ -82,7 +84,7 @@ export class CanvasView {
    */
   public renderStroke(
     points: readonly Point[],
-    strokeColor: string = '#38bdf8',
+    strokeColor: string = getNotebookPalette().ink,
     lineWidth: number = 3.5
   ): void {
     if (points.length < 2) return;
@@ -257,7 +259,7 @@ export class CanvasView {
   public renderCoordinateAxes(
     baselineAxis: { start: Point; end: Point },
     verticalAxis: { start: Point; end: Point },
-    color: string = 'rgba(148, 163, 184, 0.35)'
+    color: string = getNotebookPalette().axis
   ): void {
     this.ctx.save();
     this.ctx.strokeStyle = color;
@@ -271,7 +273,7 @@ export class CanvasView {
     this.ctx.stroke();
 
     // Vertical axis at origin (x' = minX)
-    this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    this.ctx.strokeStyle = `rgba(${getNotebookPalette().inkRgb}, 0.4)`;
     this.ctx.setLineDash([3, 3]);
     this.ctx.beginPath();
     this.ctx.moveTo(verticalAxis.start.x, verticalAxis.start.y);
@@ -301,29 +303,29 @@ export class CanvasView {
     const outerAlpha = 0.3 * (1 - pulseFactor * 0.5);
     this.ctx.beginPath();
     this.ctx.arc(origin.x, origin.y, outerRadius, 0, Math.PI * 2);
-    this.ctx.strokeStyle = `rgba(56, 189, 248, ${outerAlpha})`;
+    this.ctx.strokeStyle = `rgba(${getNotebookPalette().inkRgb}, ${outerAlpha})`;
     this.ctx.lineWidth = 1.5;
     this.ctx.stroke();
 
     // 2. Interactive hitbox ring (>= 44x44px clickable target)
     this.ctx.beginPath();
     this.ctx.arc(origin.x, origin.y, hitRadius, 0, Math.PI * 2);
-    this.ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+    this.ctx.fillStyle = `rgba(${getNotebookPalette().inkRgb}, 0.08)`;
     this.ctx.fill();
-    this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    this.ctx.strokeStyle = `rgba(${getNotebookPalette().inkRgb}, 0.4)`;
     this.ctx.lineWidth = 1.5;
     this.ctx.stroke();
 
     // 3. Central target bullseye
     this.ctx.beginPath();
     this.ctx.arc(origin.x, origin.y, 4, 0, Math.PI * 2);
-    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillStyle = getNotebookPalette().ink;
     this.ctx.fill();
 
     // 4. "RESET" micro-label badge
-    this.ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.ctx.font = `600 11px ${TEXT_FONT}`;
     this.ctx.textAlign = 'center';
-    this.ctx.fillStyle = '#94a3b8';
+    this.ctx.fillStyle = getNotebookPalette().muted;
     this.ctx.fillText('RESET', origin.x, origin.y + hitRadius + 15);
 
     this.ctx.restore();
@@ -340,24 +342,12 @@ export class CanvasView {
     this.ctx.shadowBlur = 0;
     const cx = this.width / 2;
     const isMobile = this.width < 520;
-    const heroFontSize = isMobile ? 38 : 52;
     const subFontSize = isMobile ? 15 : 20;
 
-    // 1. Groß oben: Hero Headline ONLY the percentage number (no "Accuracy:" label)
-    let accColor = '#22c55e'; // green
-    if (state.accuracy < 50) {
-      accColor = '#ef4444'; // red
-    } else if (state.accuracy < 80) {
-      accColor = '#f59e0b'; // amber
-    }
-
-    this.ctx.textAlign = 'center';
-    this.ctx.font = `800 ${heroFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-    this.ctx.fillStyle = accColor;
-    this.ctx.fillText(`${state.accuracy}%`, cx, isMobile ? 54 : 66);
+    this.renderAccuracy(state.accuracy);
 
     // 2. Unten drunter: Animated calculation from sine length to Score (clean, no extra labels or filler text)
-    const calcY = isMobile ? 92 : 110;
+    const calcY = isMobile ? 148 : 110;
 
     // Optional celebratory ripple for high & legendary tiers
     if (state.rippleRadius > 0 && state.rippleAlpha > 0) {
@@ -372,20 +362,20 @@ export class CanvasView {
     }
 
     // Calculation text formatting: smooth count-up to target score (no filler words like "Measuring..." or "Length Bonus")
-    let scoreColor = '#38bdf8';
-    if (state.targetScore < 300) scoreColor = '#ef4444';
-    else if (state.targetScore < 700) scoreColor = '#f59e0b';
-    else if (state.targetScore < 1000) scoreColor = '#22c55e';
-    else scoreColor = '#facc15';
+    let scoreColor = getNotebookPalette().ink;
+    if (state.targetScore < 300) scoreColor = getNotebookPalette().red;
+    else if (state.targetScore < 700) scoreColor = getNotebookPalette().amber;
+    else if (state.targetScore < 1000) scoreColor = getNotebookPalette().green;
+    else scoreColor = getNotebookPalette().amber;
 
     if (state.phase === 'measuring' || state.phase === 'multiplying') {
-      this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      this.ctx.fillStyle = '#cbd5e1';
+      this.ctx.font = `600 ${subFontSize}px ${METRIC_FONT}`;
+      this.ctx.fillStyle = getNotebookPalette().muted;
       this.ctx.fillText(`Score: ${state.currentScore.toLocaleString()} pts`, cx, calcY);
     } else {
       // Celebrating or settled: highlight score with scale bounce
       const finalFontSize = Math.round(subFontSize * state.scaleFactor);
-      this.ctx.font = `800 ${finalFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      this.ctx.font = `600 ${finalFontSize}px ${METRIC_FONT}`;
       this.ctx.fillStyle = scoreColor;
 
       let calcText = '';
@@ -491,7 +481,7 @@ export class CanvasView {
     // Dynamic style configuration per celebration tier
     const config = {
       legendary: {
-        ringColor: '#facc15',
+        ringColor: getNotebookPalette().amber,
         trailColor: 'rgba(250, 204, 21, ',
         auraColor: 'rgba(250, 204, 21, 0.45)',
         radius: 6.5,
@@ -499,7 +489,7 @@ export class CanvasView {
         hasFlare: true,
       },
       high: {
-        ringColor: '#22c55e',
+        ringColor: getNotebookPalette().green,
         trailColor: 'rgba(74, 222, 128, ',
         auraColor: 'rgba(34, 197, 94, 0.40)',
         radius: 5.5,
@@ -507,15 +497,15 @@ export class CanvasView {
         hasFlare: true,
       },
       medium: {
-        ringColor: '#38bdf8',
-        trailColor: 'rgba(56, 189, 248, ',
-        auraColor: 'rgba(56, 189, 248, 0.35)',
+        ringColor: getNotebookPalette().ink,
+        trailColor: `rgba(${getNotebookPalette().inkRgb}, `,
+        auraColor: `rgba(${getNotebookPalette().inkRgb}, 0.35)`,
         radius: 4.5,
         auraRadius: 15,
         hasFlare: false,
       },
       low: {
-        ringColor: '#f59e0b',
+        ringColor: getNotebookPalette().amber,
         trailColor: 'rgba(245, 158, 11, ',
         auraColor: 'rgba(245, 158, 11, 0.30)',
         radius: 4.0,
@@ -591,10 +581,10 @@ export class CanvasView {
     this.ctx.lineWidth = 2.0;
     this.ctx.stroke();
 
-    // 4. Brilliant white-hot core
+    // 4. Ink-colored tracer core
     this.ctx.beginPath();
     this.ctx.arc(headPt.x, headPt.y, config.radius, 0, Math.PI * 2);
-    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillStyle = getNotebookPalette().ink;
     this.ctx.fill();
 
     // 5. Radiant 4-point star glint for high and legendary tiers
@@ -630,6 +620,16 @@ export class CanvasView {
     this.ctx.restore();
   }
 
+  /** Live and final accuracy share one style, size, position and color scale. */
+  private renderAccuracy(accuracy: number): void {
+    const isMobile = this.width < 520;
+    this.ctx.textAlign = 'center';
+    this.ctx.font = `600 ${isMobile ? 38 : 52}px ${METRIC_FONT}`;
+    this.ctx.fillStyle = accuracy < 50 ? getNotebookPalette().red
+      : accuracy < 80 ? getNotebookPalette().amber : getNotebookPalette().green;
+    this.ctx.fillText(`${accuracy}%`, this.width / 2, isMobile ? 110 : 66);
+  }
+
   /**
    * Renders a transient notification or fallback banner directly on canvas.
    * School notebook style: crisp typography, large accuracy on top, zero glow.
@@ -644,37 +644,29 @@ export class CanvasView {
     const cx = this.width / 2;
     const isMobile = this.width < 520;
     const bannerFontSize = isMobile ? 32 : 48;
+    const messageFontSize = isMobile ? 22 : 32;
 
     if (isError) {
       // Uniform headline font size and positioning, zero extra info
       this.ctx.textAlign = 'center';
-      this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      this.ctx.fillStyle = '#ef4444';
-      this.ctx.fillText(title, cx, isMobile ? 54 : 66);
+      this.ctx.font = `600 ${messageFontSize}px ${TEXT_FONT}`;
+      this.ctx.fillStyle = getNotebookPalette().red;
+      this.ctx.fillText(title, cx, isMobile ? 110 : 66, this.width - 48);
       this.ctx.restore();
       return;
     }
 
     // If title starts with Accuracy or is a percentage number:
-    const accMatch = title.match(/^(?:Accuracy:\s*)?(\d+%?)$/i);
+    const accMatch = title.match(/^(?:Accuracy:\s*)?(\d+(?:[.,]\d+)?%?)$/i);
     if (accMatch) {
-      const accVal = parseInt(accMatch[1].replace('%', ''), 10);
-      let accColor = '#22c55e';
-      if (!isNaN(accVal)) {
-        if (accVal < 50) accColor = '#ef4444';
-        else if (accVal < 80) accColor = '#f59e0b';
-      }
-
-      this.ctx.textAlign = 'center';
-      this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      this.ctx.fillStyle = accColor;
-      this.ctx.fillText(`${accVal}%`, cx, isMobile ? 54 : 66);
+      const accVal = Number.parseFloat(accMatch[1].replace(',', '.'));
+      this.renderAccuracy(accVal);
 
       if (subtitle) {
         const subFontSize = isMobile ? 16 : 20;
-        this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-        this.ctx.fillStyle = '#cbd5e1';
-        this.ctx.fillText(subtitle, cx, isMobile ? 82 : 98);
+        this.ctx.font = `500 ${subFontSize}px ${TEXT_FONT}`;
+        this.ctx.fillStyle = getNotebookPalette().muted;
+        this.ctx.fillText(subtitle, cx, isMobile ? 146 : 98);
       }
       this.ctx.restore();
       return;
@@ -687,19 +679,19 @@ export class CanvasView {
       this.ctx.textAlign = 'center';
 
       const numericVal = parseInt(scoreText.replace(/\D/g, ''), 10);
-      let scoreColor = '#22c55e';
+      let scoreColor = getNotebookPalette().green;
       if (!isNaN(numericVal)) {
         if (numericVal < 400) {
-          scoreColor = '#ef4444';
+          scoreColor = getNotebookPalette().red;
         } else if (numericVal < 700) {
-          scoreColor = '#f59e0b';
+          scoreColor = getNotebookPalette().amber;
         }
       }
 
-      this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      this.ctx.font = `600 ${bannerFontSize}px ${METRIC_FONT}`;
       this.ctx.fillStyle = scoreColor;
       const displayScore = title.startsWith('Demo') ? `Demo: ${scoreText}` : `Score: ${scoreText}`;
-      this.ctx.fillText(displayScore, cx, isMobile ? 54 : 66);
+      this.ctx.fillText(displayScore, cx, isMobile ? 110 : 66);
 
       if (subtitle) {
         let accuracyText = subtitle.split('|')[0].trim();
@@ -707,21 +699,21 @@ export class CanvasView {
           accuracyText = `Accuracy: ${accuracyText}`;
         }
         const accFontSize = isMobile ? 18 : 22;
-        this.ctx.font = `600 ${accFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-        this.ctx.fillStyle = '#f1f5f9';
-        this.ctx.fillText(accuracyText, cx, isMobile ? 82 : 98);
+        this.ctx.font = `500 ${accFontSize}px ${TEXT_FONT}`;
+        this.ctx.fillStyle = getNotebookPalette().text;
+        this.ctx.fillText(accuracyText, cx, isMobile ? 146 : 98);
       }
     } else {
       this.ctx.textAlign = 'center';
-      this.ctx.font = `800 ${bannerFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      this.ctx.fillStyle = '#38bdf8';
-      this.ctx.fillText(title, cx, isMobile ? 54 : 66);
+      this.ctx.font = `600 ${messageFontSize}px ${TEXT_FONT}`;
+      this.ctx.fillStyle = getNotebookPalette().ink;
+      this.ctx.fillText(title, cx, isMobile ? 110 : 66, this.width - 48);
 
       if (subtitle) {
         const subFontSize = isMobile ? 18 : 22;
-        this.ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-        this.ctx.fillStyle = '#94a3b8';
-        this.ctx.fillText(subtitle, cx, isMobile ? 82 : 98);
+        this.ctx.font = `500 ${subFontSize}px ${TEXT_FONT}`;
+        this.ctx.fillStyle = getNotebookPalette().muted;
+        this.ctx.fillText(subtitle, cx, isMobile ? 146 : 98);
       }
     }
 

@@ -7,20 +7,18 @@ export interface HudViewOptions {
 
 /**
  * HudView
- * Coordinates the DOM-based Score/Highscore HUD overlay, Spotify-Wrapped share modal,
+ * Coordinates the HUD and share dialog for the current completed drawing,
  * real PNG/Web-Share actions, and browser screenshot/capture triggers.
  */
 export class HudView {
-  private readonly sessionService: SessionHistoryService;
   private readonly getWaveSnapshot?: () => ShareCardSnapshot | null;
 
   private readonly currentScoreEl: HTMLElement | null;
   private readonly highscoreEl: HTMLElement | null;
-  private readonly wrappedBtn: HTMLElement | null;
+  private readonly wrappedBtn: HTMLButtonElement | null;
   private readonly modalEl: HTMLElement | null;
   private readonly closeBtn: HTMLElement | null;
   private readonly resumeBtn: HTMLElement | null;
-  private readonly resetBtn: HTMLElement | null;
 
   // Share Controls
   private readonly shareBtn: HTMLElement | null;
@@ -31,26 +29,16 @@ export class HudView {
   private readonly sharePreviewWrapEl: HTMLElement | null;
   private statusTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Modal Stat Elements
-  private readonly statHighscoreEl: HTMLElement | null;
-  private readonly statAvgAccuracyEl: HTMLElement | null;
-  private readonly statAttemptsEl: HTMLElement | null;
-  private readonly statCyclesEl: HTMLElement | null;
-  private readonly statConsistencyEl: HTMLElement | null;
-  private readonly statStreakEl: HTMLElement | null;
-
   constructor(sessionService: SessionHistoryService, options: HudViewOptions = {}) {
-    this.sessionService = sessionService;
     this.getWaveSnapshot = options.getWaveSnapshot;
 
     // Cache HUD DOM references
     this.currentScoreEl = document.getElementById('hud-current-score');
     this.highscoreEl = document.getElementById('hud-highscore');
-    this.wrappedBtn = document.getElementById('wrapped-btn');
+    this.wrappedBtn = document.getElementById('wrapped-btn') as HTMLButtonElement | null;
     this.modalEl = document.getElementById('wrapped-modal');
     this.closeBtn = document.getElementById('modal-close-x');
     this.resumeBtn = document.getElementById('modal-resume-btn');
-    this.resetBtn = document.getElementById('modal-reset-btn');
 
     // Cache Share Controls
     this.shareBtn = document.getElementById('modal-share-btn');
@@ -60,22 +48,14 @@ export class HudView {
     this.sharePreviewEl = document.getElementById('modal-share-preview') as HTMLImageElement | null;
     this.sharePreviewWrapEl = document.getElementById('modal-share-preview-wrap');
 
-    // Cache Modal Stat Elements
-    this.statHighscoreEl = document.getElementById('stat-highscore');
-    this.statAvgAccuracyEl = document.getElementById('stat-avg-accuracy');
-    this.statAttemptsEl = document.getElementById('stat-attempts');
-    this.statCyclesEl = document.getElementById('stat-cycles');
-    this.statConsistencyEl = document.getElementById('stat-consistency');
-    this.statStreakEl = document.getElementById('stat-streak');
-
     this.bindEvents();
-    this.update(this.sessionService.getSummary());
+    this.update(sessionService.getSummary());
 
     // Subscribe to reactive session history updates
-    this.sessionService.subscribe((summary) => {
+    sessionService.subscribe((summary) => {
       this.update(summary);
       if (this.isModalOpen()) {
-        this.refreshSharePreview(summary);
+        this.refreshSharePreview();
       }
     });
   }
@@ -147,13 +127,6 @@ export class HudView {
       this.resumeBtn.addEventListener('click', () => this.closeModal());
     }
 
-    if (this.resetBtn) {
-      this.resetBtn.addEventListener('click', () => {
-        this.sessionService.clear();
-        this.setShareStatus('Reset');
-      });
-    }
-
     if (this.shareBtn) {
       this.shareBtn.addEventListener('click', () => {
         void this.handleShare();
@@ -195,7 +168,7 @@ export class HudView {
         return;
       }
 
-      if (HudView.isInAppShareShortcut(e) && !this.isModalOpen()) {
+      if (HudView.isInAppShareShortcut(e) && !this.isModalOpen() && ShareCardGenerator.canShare(this.getSnapshot())) {
         if (typeof e.preventDefault === 'function') {
           e.preventDefault();
         }
@@ -211,7 +184,7 @@ export class HudView {
       }
     });
 
-    // Open share summary cleanly when user opens Print / Save-as-PDF
+    // Open the current-wave share card when the browser prints and a drawing exists
     window.addEventListener('beforeprint', () => {
       if (!this.isModalOpen()) {
         this.openModal();
@@ -224,18 +197,19 @@ export class HudView {
     const defaultUrl = typeof window !== 'undefined' && window.location ? window.location.href : undefined;
     return {
       stroke: base?.stroke ?? null,
-      sourceCanvas: base?.sourceCanvas ?? null,
       url: base?.url ?? defaultUrl,
     };
   }
 
-  private refreshSharePreview(summary: SessionSummary): void {
+  private refreshSharePreview(): void {
     if (!this.sharePreviewEl || !this.sharePreviewWrapEl) return;
 
     try {
-      const dataUrl = ShareCardGenerator.toDataUrl(summary, this.getSnapshot());
+      const snapshot = this.getSnapshot();
+      const dataUrl = ShareCardGenerator.toDataUrl(snapshot);
       if (dataUrl) {
         this.sharePreviewEl.src = dataUrl;
+        this.sharePreviewEl.alt = ShareCardGenerator.buildShareText({ ...snapshot, url: undefined });
         this.sharePreviewWrapEl.classList.remove('hidden');
         return;
       }
@@ -272,14 +246,16 @@ export class HudView {
   }
 
   public async handleShare(): Promise<void> {
-    const summary = this.sessionService.getSummary();
-    const outcome = await ShareCardGenerator.share(summary, this.getSnapshot());
+    const snapshot = this.getSnapshot();
+    if (!ShareCardGenerator.canShare(snapshot)) return;
+    const outcome = await ShareCardGenerator.share(snapshot);
     this.setShareStatus(outcome.message, outcome.status === 'error');
   }
 
   public handleDownloadScreenshot(): void {
-    const summary = this.sessionService.getSummary();
-    const ok = ShareCardGenerator.downloadShareCard(summary, this.getSnapshot());
+    const snapshot = this.getSnapshot();
+    if (!ShareCardGenerator.canShare(snapshot)) return;
+    const ok = ShareCardGenerator.downloadShareCard(snapshot);
     this.setShareStatus(
       ok ? 'Saved Share Card PNG!' : 'Could not save PNG in this environment.',
       !ok
@@ -287,8 +263,9 @@ export class HudView {
   }
 
   public async handleCopy(): Promise<void> {
-    const summary = this.sessionService.getSummary();
-    const outcome = await ShareCardGenerator.copyShareCard(summary, this.getSnapshot());
+    const snapshot = this.getSnapshot();
+    if (!ShareCardGenerator.canShare(snapshot)) return;
+    const outcome = await ShareCardGenerator.copyShareCard(snapshot);
     this.setShareStatus(outcome.message, outcome.status === 'error');
   }
 
@@ -302,36 +279,22 @@ export class HudView {
       this.highscoreEl.textContent = `${summary.highscore.toLocaleString()} pts`;
     }
 
-    if (this.statHighscoreEl) {
-      this.statHighscoreEl.textContent = `${summary.highscore.toLocaleString()} pts`;
-    }
+    this.updateShareAvailability();
+  }
 
-    if (this.statAvgAccuracyEl) {
-      this.statAvgAccuracyEl.textContent = `${summary.averageAccuracy}%`;
+  public updateShareAvailability(): void {
+    const available = ShareCardGenerator.canShare(this.getSnapshot());
+    if (this.wrappedBtn) this.wrappedBtn.disabled = !available;
+    for (const element of [this.shareBtn, this.screenshotBtn, this.copyBtn]) {
+      if (element) (element as HTMLButtonElement).disabled = !available;
     }
-
-    if (this.statAttemptsEl) {
-      this.statAttemptsEl.textContent = `${summary.totalAttempts}`;
-    }
-
-    if (this.statCyclesEl) {
-      this.statCyclesEl.textContent = `${summary.totalCyclesDrawn.toFixed(1)} waves`;
-    }
-
-    if (this.statConsistencyEl) {
-      this.statConsistencyEl.textContent = `${summary.consistencyScore} / 100`;
-    }
-
-    if (this.statStreakEl) {
-      this.statStreakEl.textContent = `${summary.streakCount} 🔥`;
-    }
+    if (!available && this.isModalOpen()) this.closeModal();
   }
 
   public openModal(initialStatus?: string): void {
+    if (!ShareCardGenerator.canShare(this.getSnapshot())) return;
     if (this.modalEl) {
-      const summary = this.sessionService.getSummary();
-      this.update(summary);
-      this.refreshSharePreview(summary);
+      this.refreshSharePreview();
       this.modalEl.classList.remove('hidden');
       this.setShareStatus(initialStatus ?? '');
     }

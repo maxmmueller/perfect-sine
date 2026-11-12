@@ -39,18 +39,75 @@ When `VITE_DEV_TOOLS === 'true'`, [`setupDevTools`](../src/dev/setupDevTools.ts)
 
 ---
 
-## 3. Session Summary, Share Card & Screenshot Triggers
+## 3. Current-Wave Sharing & Screenshot Triggers
 
-Available in **all** builds (development and production):
+Available in all builds, after an own drawing has been completed:
 
-- **HUD & Share Modal (`HudView`):** Displays live Current Score, Highscore (`localStorage` key `perfect_sine_session_history_v1`), and opens the **Wave Summary** modal showing clean numeric metrics (Highscore, Avg Accuracy, Attempts, Total Cycles, Consistency Score, and Active Streak for attempts $\ge 80\%$) without extraneous copy.
-- **Offscreen Share Card Pipeline (`ShareCardGenerator`):** Renders a `960 x 560` PNG card (`PREVIEW_BOX = { x: 36, y: 92, w: 516, h: 416 }`) containing a crisp preview of the player's last drawn/evaluated wave alongside session values and the `Perfect Sine` title.
-- **Native Share & Fallbacks (`ShareCardGenerator.share`):**
-  1. Uses `navigator.share({ files, title, text })` when Web Share with image files is supported.
-  2. Falls back to Web Share text/URL or clipboard image (`ClipboardItem` PNG) / clipboard text, or direct PNG download (`handleDownloadScreenshot`).
-- **Screenshot & Shortcut Triggers (`HudView.isScreenshotShortcut` / `isInAppShareShortcut`):**
-  - Pressing `S` (outside text inputs) opens the Wave Summary share modal.
-  - Best-effort detection of browser/OS screenshot chords (`PrintScreen`, `Ctrl/Cmd+Shift+S`, `Cmd+Shift+3/4/5`) automatically opens the Share modal so players immediately see a shareable card ready to copy, download, or dispatch.
+- **Eligibility:** `main.ts` supplies a snapshot only in `LOCKED` state while the
+  demo is stopped. It refreshes `HudView.updateShareAvailability()` on state
+  changes. The `LOCKED` refresh runs in a microtask because the controller captures
+  `lastDrawnStroke` immediately after that transition. Idle, a running demo,
+  in-progress drawings, reset and reload cannot expose an older or synthetic wave.
+  Session history never unlocks sharing. A single-point click is not shareable.
+- **Dialog:** One preview with Share, Save PNG, Copy and Keep Drawing. The Session
+  section and Reset Stats control are removed. Native button disabling and guards
+  on `openModal()` and all export handlers prevent shortcut/programmatic bypasses.
+- **Card:** `ShareCardGenerator` accepts only `ShareCardSnapshot`, with no
+  `SessionSummary` or source-canvas input. Its `960 x 960` PNG contains the actual
+  stroke, its current accuracy and score. The footer groups the link directly beside the
+  small wave mark; cycle counts are omitted from image and text exports. The drawing region
+  is `{ x: 60, y: 320, w: 840, h: 420 }`. Invalid completed attempts display their
+  validation message without invented accuracy or score. No demo/example
+  fallback exists. `canShare()` requires at least two captured points; direct
+  render calls reject missing drawings and share/copy/download APIs return errors
+  or false before browser side effects.
+- **Native share and fallbacks:** File sharing uses `perfect-sine-wave.png`.
+  Clipboard text and native text/URL fallbacks contain only the same current-wave
+  results and link. Session statistics never enter any export path.
+- **Shortcuts:** Bare `S`, supported screenshot chords, PrintScreen keyup and
+  `beforeprint` open the dialog only when the current completed drawing is
+  shareable. Typing in editable fields and browser Ctrl+S remain unaffected.
+
+---
+
+### Fixed dark appearance
+
+The root CSS palette and native browser color scheme are always dark.
+[`ThemeView.ts`](../src/view/ThemeView.ts) returns the same immutable dark colors
+for the canvas and share exports without accessing the DOM, system preference or
+storage. The theme switch and saved-theme initialization have been removed;
+older `perfect-sine-theme` values cannot change the appearance. Session history
+storage is unaffected.
+
+### Typography
+
+All UI text, scores, numerical metrics, canvas messages and share-card labels
+use the platform system sans-serif. Only the brand logo retains outlined Kalam
+lettering. [`Typography.ts`](../src/view/Typography.ts) supplies the native canvas
+font stacks, matching the CSS body and metric styles; gameplay loads no web font.
+Live percentages with decimal separators and final accuracy use one shared
+`CanvasView.renderAccuracy()` renderer, keeping family, size, position and color
+thresholds consistent while drawing and after release. Decimal values are
+preserved. This changes presentation without changing scoring or controls.
+
+### Shared logos and browser icons
+
+[`BrandView.ts`](../src/view/BrandView.ts) renders both brand variants from
+[`brandGeometry.json`](../src/view/brandGeometry.json). `mountBrandLogos()` fills
+`[data-brand]` placeholders in the header and summary. `drawBrandLogo()` draws
+the same vector paths synchronously on the share card: the full logo in the
+header and the small wave mark in the footer. This avoids font or image-loading
+races during the first PNG, clipboard or native share export.
+
+The full logo uses pale blue ink on dark paper, a seven-degree wave tilt and 82% wave opacity.
+Its outlined lettering preserves the compact handwritten layout: a four-degree
+lean, tightly tracked `Sine` lettering and slightly overlapping word lines.
+The small mark is an opaque, imperfect sine with red ends and a green center.
+`public/brand/` contains the dark SVG wordmark, an SVG favicon, transparent
+32px/512px PNG marks and a 180px touch icon on dark paper. Run
+`npm run export-brand` to regenerate SVGs; update the PNG counterparts from the
+same mark when its geometry changes. `BrandView.test.ts` checks that the SVG
+exports match runtime artwork. No game rules or share triggers change.
 
 ---
 

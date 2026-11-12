@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CanvasView } from './CanvasView';
 import { PointDeviation } from '../model/types';
+import type { ScoreAnimationState } from './ScoreCalculationAnimator';
 
 describe('CanvasView', () => {
   let mockCtx: any;
@@ -76,6 +77,38 @@ describe('CanvasView', () => {
     view.clear();
     expect(mockCtx.clearRect).toHaveBeenCalledWith(0, 0, 800, 600);
     expect(mockCtx.beginPath).toHaveBeenCalled();
+  });
+
+  it.each([390, 800])('keeps integer and decimal live accuracy identical to final accuracy at %ipx', (width) => {
+    mockCanvas.getBoundingClientRect = () => ({ width, height: 600 });
+    const view = new CanvasView(mockCanvas);
+    const rendered: Array<{ text: string; font: string; color: string; x: number; y: number }> = [];
+    mockCtx.fillText.mockImplementation((text: string, x: number, y: number) => {
+      rendered.push({ text, font: mockCtx.font, color: mockCtx.fillStyle, x, y });
+    });
+    for (const accuracy of [0, 49.9, 50, 79.9, 80, 97.3, 100]) {
+      view.renderBanner(`${accuracy}%`);
+      const live = rendered[rendered.length - 1];
+      const settled: ScoreAnimationState = {
+        isActive: false, accuracy, fullCycles: 2, targetScore: 800,
+        currentScore: 800, currentCycles: 2, progress: 1, scaleFactor: 1,
+        tier: 'high', particles: [], waveTracerProgress: 1,
+        phase: 'settled', rippleRadius: 0, rippleAlpha: 0,
+      };
+      rendered.length = 0;
+      view.renderCalculationBanner(settled);
+      expect(rendered[0]).toEqual(live);
+      expect(live.text).toBe(`${accuracy}%`);
+      expect(live.font).toContain('system-ui');
+      expect(live.font).not.toMatch(/Kalam|cursive/);
+    }
+  });
+
+  it.each(['97.3%', '97,3%', 'Accuracy: 97.3%'])('recognizes %s as a numeric result without truncating the decimal', (text) => {
+    const view = new CanvasView(mockCanvas);
+    view.renderBanner(text);
+    expect(mockCtx.fillText).toHaveBeenCalledWith('97.3%', 400, 66);
+    expect(mockCtx.font).toContain('52px');
   });
 
   it('should render evaluated stroke with gradient colors and custom alpha', () => {
