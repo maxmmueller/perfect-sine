@@ -18,7 +18,6 @@ export class HudView {
   private readonly wrappedBtn: HTMLButtonElement | null;
   private readonly modalEl: HTMLElement | null;
   private readonly closeBtn: HTMLElement | null;
-  private readonly resumeBtn: HTMLElement | null;
 
   // Share Controls
   private readonly shareBtn: HTMLElement | null;
@@ -38,7 +37,6 @@ export class HudView {
     this.wrappedBtn = document.getElementById('wrapped-btn') as HTMLButtonElement | null;
     this.modalEl = document.getElementById('wrapped-modal');
     this.closeBtn = document.getElementById('modal-close-x');
-    this.resumeBtn = document.getElementById('modal-resume-btn');
 
     // Cache Share Controls
     this.shareBtn = document.getElementById('modal-share-btn');
@@ -121,10 +119,6 @@ export class HudView {
 
     if (this.closeBtn) {
       this.closeBtn.addEventListener('click', () => this.closeModal());
-    }
-
-    if (this.resumeBtn) {
-      this.resumeBtn.addEventListener('click', () => this.closeModal());
     }
 
     if (this.shareBtn) {
