@@ -115,6 +115,16 @@ exports match runtime artwork. No game rules or share triggers change.
 
 ---
 
+### Mobile share control
+
+The header is fixed to the viewport with safe-area-aware left/right/top insets.
+The HUD controls cannot shrink, and the share button uses custom CSS appearance
+and 60% opacity when disabled so its 44px touch target remains discoverable.
+Browser checks cover Chromium and WebKit in phone/tablet sizes, tablet rotation,
+desktop user agents, idle/drawing/finished states and opening the dialog by touch.
+A device-specific iPad disappearance was reported but not reproduced in automation;
+these styles harden viewport positioning and visibility without changing eligibility.
+
 ### Mobile input regression checks
 
 The first primary pointer owns each drawing until release/cancellation. Controller

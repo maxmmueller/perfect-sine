@@ -34,8 +34,8 @@ button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 4px
 }
 
 .app-header {
-  position: absolute;
-  inset: max(22px, env(safe-area-inset-top)) 28px auto 88px;
+  position: fixed;
+  inset: max(22px, env(safe-area-inset-top, 0px)) max(28px, env(safe-area-inset-right, 0px)) auto max(88px, env(safe-area-inset-left, 0px));
   z-index: 10;
   display: flex;
   justify-content: space-between;
@@ -47,7 +47,7 @@ button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 4px
 .brand-logo { display: block; width: 128px; color: var(--color-cyan); line-height: 0; }
 .brand-logo svg { display: block; width: 100%; height: auto; overflow: visible; }
 .modal-header .brand-logo { width: 112px; }
-.hud-metrics { display: flex; align-items: center; gap: 12px; }
+.hud-metrics { display: flex; flex-shrink: 0; align-items: center; gap: 12px; }
 .hud-pill { display: none; }
 .share-btn, .modal-close-btn {
   display: grid;
@@ -60,7 +60,9 @@ button:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 4px
   border: 1px solid var(--border-color);
   border-radius: 8px;
 }
+.share-btn { -webkit-appearance: none; appearance: none; }
 button:disabled { cursor: default; opacity: 0.3; }
+.share-btn:disabled { opacity: 0.6; }
 button { transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease; }
 button:not(:disabled):hover { background-color: var(--hover-color); border-color: var(--text-muted); }
 button:not(:disabled):active { transform: translateY(1px); }
@@ -131,7 +133,7 @@ button:not(:disabled):active { transform: translateY(1px); }
 .modal-share-status.is-error { color: var(--error-color); }
 
 @media (max-width: 540px) {
-  .app-header { inset: max(16px, env(safe-area-inset-top)) 16px auto 40px; }
+  .app-header { inset: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) auto max(40px, env(safe-area-inset-left, 0px)); }
   .app-title { width: 104px; }
   .modal-overlay { padding: 16px; }
   .modal-close-btn { top: 10px; right: 10px; }
