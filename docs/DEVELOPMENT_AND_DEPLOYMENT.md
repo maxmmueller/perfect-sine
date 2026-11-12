@@ -58,7 +58,11 @@ Available in all builds, after an own drawing has been completed:
   small wave mark; cycle counts are omitted from image and text exports. The drawing region
   is `{ x: 60, y: 320, w: 840, h: 420 }`. Invalid completed attempts display their
   validation message without invented accuracy or score. No demo/example
-  fallback exists. `canShare()` requires at least two captured points; direct
+  fallback exists. Live/evaluated strokes and share images use the same
+  `GradientStrokeRenderer.drawGradientStroke()` for exact point colors, smooth
+  per-segment gradients and matching round outer end caps. Export only maps
+  coordinates into the card; it never rounds hues or replaces color saturation.
+  `canShare()` requires at least two captured points; direct
   render calls reject missing drawings and share/copy/download APIs return errors
   or false before browser side effects.
 - **Native share and fallbacks:** File sharing uses `perfect-sine-wave.png`.

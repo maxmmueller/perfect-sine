@@ -18,7 +18,7 @@ describe('ShareCardGenerator: current drawing only', () => {
     ctx = {
       fillRect: vi.fn(), translate: vi.fn(), scale: vi.fn(), beginPath: vi.fn(),
       moveTo: vi.fn(), lineTo: vi.fn(), quadraticCurveTo: vi.fn(), closePath: vi.fn(),
-      clip: vi.fn(), stroke: vi.fn(), fill: vi.fn(), save: vi.fn(), restore: vi.fn(),
+      arc: vi.fn(), clip: vi.fn(), stroke: vi.fn(), fill: vi.fn(), save: vi.fn(), restore: vi.fn(),
       fillText: vi.fn((text: string) => labels.push(text)),
       measureText: vi.fn((text: string) => ({ width: text.length * 7 })),
       createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
@@ -76,6 +76,27 @@ describe('ShareCardGenerator: current drawing only', () => {
     expect(labels.join(' ')).not.toMatch(/Personal Best|Average|Avg Accuracy|Attempts|Streak|Consistency|Session/);
     expect(ctx.fill).toHaveBeenCalledWith(expect.any(Path2D));
     expect(ctx.lineTo).toHaveBeenCalled();
+  });
+
+  it('interpolates every exported segment using the exact original endpoint colors', () => {
+    const gradients: Array<Array<[number, string]>> = [];
+    ctx.createLinearGradient = vi.fn(() => {
+      const stops: Array<[number, string]> = [];
+      gradients.push(stops);
+      return { addColorStop: (offset: number, color: string) => stops.push([offset, color]) };
+    });
+    const segmentCaps: string[] = [];
+    ctx.stroke = vi.fn((path?: Path2D) => { if (!path) segmentCaps.push(String(ctx.lineCap)); });
+    const colors = ['hsl(0, 100%, 50%)', 'hsl(60, 100%, 50%)', 'hsl(120, 100%, 50%)'];
+    const evaluation = { ...waveEvaluation, deviations: waveEvaluation.deviations.map((d, i) => ({ ...d, color: colors[i] })) };
+    ShareCardGenerator.renderShareCard({ stroke: { points: evaluation.deviations.map(d => d.point), evaluation } });
+    // The two branding gradients surround the real wave's two segment gradients.
+    expect(gradients.slice(1, -1)).toEqual([
+      [[0, colors[0]], [1, colors[1]]],
+      [[0, colors[1]], [1, colors[2]]],
+    ]);
+    expect(segmentCaps).toEqual(['butt', 'butt']);
+    expect(ctx.arc).toHaveBeenCalledTimes(2);
   });
 
   it('retains an invalid drawing and its validation message without fabricating score or accuracy', () => {
