@@ -49,9 +49,9 @@ Available in all builds, after an own drawing has been completed:
   `lastDrawnStroke` immediately after that transition. Idle, a running demo,
   in-progress drawings, reset and reload cannot expose an older or synthetic wave.
   Session history never unlocks sharing. A single-point click is not shareable.
-- **Dialog:** One preview with Share, Save PNG, Copy and Keep Drawing. The Session
-  section and Reset Stats control are removed. Native button disabling and guards
-  on `openModal()` and all export handlers prevent shortcut/programmatic bypasses.
+- **Dialog:** One preview with Share, Save PNG and Copy. Close with the X, Escape
+  or the backdrop. Native button disabling and guards on `openModal()` and all
+  export handlers prevent shortcut/programmatic bypasses.
 - **Card:** `ShareCardGenerator` accepts only `ShareCardSnapshot`, with no
   `SessionSummary` or source-canvas input. Its `960 x 960` PNG contains the actual
   stroke, its current accuracy and score. The footer groups the link directly beside the

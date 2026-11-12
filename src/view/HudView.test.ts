@@ -41,7 +41,7 @@ describe('HudView: sharing eligibility and current-wave actions', () => {
   beforeEach(() => {
     snapshot = null; listeners = {}; elements = new Map();
     for (const id of ['hud-current-score', 'hud-highscore', 'wrapped-btn', 'wrapped-modal',
-      'modal-close-x', 'modal-resume-btn', 'modal-share-btn', 'modal-screenshot-btn', 'modal-copy-btn',
+      'modal-close-x', 'modal-share-btn', 'modal-screenshot-btn', 'modal-copy-btn',
       'modal-share-status', 'modal-share-preview', 'modal-share-preview-wrap']) {
       elements.set(id, new MockElement(id === 'wrapped-modal' || id === 'modal-share-preview-wrap' ? ['hidden'] : []));
     }
@@ -130,9 +130,9 @@ describe('HudView: sharing eligibility and current-wave actions', () => {
     expect(hud.isModalOpen()).toBe(false);
   });
 
-  it('supports closing with X, resume, Escape and the backdrop', () => {
+  it('supports closing with X, Escape and the backdrop', () => {
     finishDrawing();
-    for (const id of ['modal-close-x', 'modal-resume-btn', 'wrapped-modal']) {
+    for (const id of ['modal-close-x', 'wrapped-modal']) {
       hud.openModal(); element(id).click(); expect(hud.isModalOpen()).toBe(false);
     }
     hud.openModal(); emit('keydown', { key: 'Escape' }); expect(hud.isModalOpen()).toBe(false);
