@@ -54,6 +54,8 @@ export interface StrokeEvaluation {
   readonly rmse: number;
   readonly accuracy: number;
   readonly score: number;
+  /** Spatial size multiplier (1.0 at canonical 40px amplitude × 200px wavelength). */
+  readonly scaleMultiplier?: number;
 }
 
 export type GameState = 'IDLE' | 'DRAWING' | 'EVALUATING' | 'LOCKED';

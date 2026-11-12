@@ -96,6 +96,35 @@ describe('Pluggable Scoring Strategies (A/B/n Multi-Variant Testing - US07)', ()
       const flowEval = s4.evaluate(jaggedPoints, fit);
       expect(flowEval.accuracy).toBeLessThan(70);
     });
+
+    it('all 5 strategies should scale score upward for spatially larger single-period waves', () => {
+      const tinyPoints = DemoBot.generateStroke({
+        amplitude: 22,
+        wavelength: 90,
+        cycles: 1.0,
+        jitterLevel: 0,
+        stepPx: 2,
+      });
+      const tinyFit = SineFitter.fit(tinyPoints)!;
+
+      const largePoints = DemoBot.generateStroke({
+        amplitude: 85,
+        wavelength: 320,
+        cycles: 1.0,
+        jitterLevel: 0,
+        stepPx: 2,
+      });
+      const largeFit = SineFitter.fit(largePoints)!;
+
+      [s1, s2, s3, s4, s5].forEach((strategy) => {
+        const tinyEval = strategy.evaluate(tinyPoints, tinyFit);
+        const largeEval = strategy.evaluate(largePoints, largeFit);
+
+        expect(tinyEval.scaleMultiplier).toBeLessThan(0.65);
+        expect(largeEval.scaleMultiplier).toBeGreaterThan(1.5);
+        expect(largeEval.score).toBeGreaterThan(tinyEval.score * 2);
+      });
+    });
   });
 
   describe('ScoreStrategyManager (Registry & A/B/n Allocation)', () => {

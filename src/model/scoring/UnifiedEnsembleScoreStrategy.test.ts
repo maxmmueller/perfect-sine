@@ -96,4 +96,34 @@ describe('UnifiedEnsembleScoreStrategy (Final Weighted Top-3 Scorer)', () => {
     // Because Symmetry penalizes amplitude imbalance, ensemble score is lower than pure L2
     expect(evalEnsemble.score).toBeLessThanOrEqual(evalL2.score);
   });
+
+  it('should scale final ensemble score with spatial wave size and expose scaleMultiplier', () => {
+    const ensemble = new UnifiedEnsembleScoreStrategy();
+    expect(ensemble.evaluate([], fit).scaleMultiplier).toBe(0);
+
+    const tinyPoints = DemoBot.generateStroke({
+      amplitude: 22,
+      wavelength: 90,
+      cycles: 1.0,
+      jitterLevel: 0,
+      stepPx: 2,
+    });
+    const tinyFit = SineFitter.fit(tinyPoints)!;
+
+    const largePoints = DemoBot.generateStroke({
+      amplitude: 85,
+      wavelength: 320,
+      cycles: 1.0,
+      jitterLevel: 0,
+      stepPx: 2,
+    });
+    const largeFit = SineFitter.fit(largePoints)!;
+
+    const tinyEval = ensemble.evaluate(tinyPoints, tinyFit);
+    const largeEval = ensemble.evaluate(largePoints, largeFit);
+
+    expect(tinyEval.scaleMultiplier).toBeLessThan(0.65);
+    expect(largeEval.scaleMultiplier).toBeGreaterThan(1.5);
+    expect(largeEval.score).toBeGreaterThan(tinyEval.score * 2);
+  });
 });

@@ -90,11 +90,21 @@ Normalizes error against `maxTolerance` (default `30 px`) and maps linearly acro
 
 ## 6. Scoring Strategies (`src/model/scoring/`)
 
-All scorers implement `IScoreStrategy` and convert normalized accuracy (`0..100%`) and cycle count into points using a shared non-linear reward curve (`baseScoreScale = 1000`):
+All scorers implement `IScoreStrategy` and convert normalized accuracy (`0..100%`), cycle count, and spatial period size into points using shared helpers in `DeviationCalculator` (`calculateScaleMultiplier` & `calculateFinalScore`, with `baseScoreScale = 1000`):
 
-$$\text{Score} = \operatorname{round}\!\left(\text{baseScoreScale} \cdot \left(\frac{\text{accuracy}}{100}\right)^{2.5} \cdot \sqrt{\max(0.1,\; \text{fullCycles})}\right)$$
+$$\text{Score} = \operatorname{round}\!\left(\text{baseScoreScale} \cdot \left(\frac{\text{accuracy}}{100}\right)^{2.5} \cdot \sqrt{\max(0.1,\; \text{fullCycles})} \cdot \text{scaleMultiplier}\right)$$
 
 Because accuracy is raised to the exponent $2.5$ while length grows as $\sqrt{\text{fullCycles}}$, precision dominates roughly $5\times$ more strongly than simply drawing longer waves.
+
+### Spatial Scale Multiplier (`calculateScaleMultiplier`)
+
+A tiny one-period sine wave covers minimal pixel span, making it disproportionately easy to keep absolute orthogonal deviations within `maxTolerance = 30 px`. To ensure spatial size contributes fairly to the final score, `DeviationCalculator.calculateScaleMultiplier(fit)` scales each period by its 2D geometric mean size relative to a canonical **`40 px` amplitude × `200 px` wavelength** reference wave:
+
+$$\text{scaleMultiplier} = \operatorname{clamp}\!\left(\frac{\sqrt{\max(1, |A|) \cdot \max(1, T)}}{\sqrt{40 \cdot 200}},\; 0.25,\; 2.0\right)$$
+
+- Tiny waves (e.g., $20\text{ px} \times 80\text{ px}$) receive `0.45x` (clamped at `0.25x` floor), preventing micro-scribbles from challenging large expressive waves.
+- Reference waves ($40\text{ px} \times 200\text{ px}$) receive exact `1.0x`.
+- Large sweeping waves (e.g., $85\text{ px} \times 320\text{ px}$) earn up to `2.0x` (`1.84x` at $85 \times 320$), exposed on `StrokeEvaluation.scaleMultiplier`.
 
 | Class | Strategy ID | Mathematical Basis | Primary Sensitivity |
 | :--- | :--- | :--- | :--- |
@@ -121,3 +131,4 @@ When idle on launch (or after `15 s` of post-draw inactivity on an empty canvas)
 - **Imperfection Profiles (`generateStrokeWithDeviations`):** Supports `'pristine'`, `'wobbly'`, `'uneven'`, `'runaway'`, and `'mixed'` error profiles with analytical deviations from the intended nominal sine so color gradients always match true accuracy.
 - **Spatial Non-Overlap & Center-Weighted Placement (`DrawingController.generatePlacedDemoWave`):** Samples candidate centers weighted toward the screen center (`(Math.random() + Math.random()) * 0.5`), tests clearance (`minDistance = 34 px`) against visible points of still-fading waves over up to `42` attempts, shrinking geometry after attempt `20` or retiring the oldest faded wave at attempt `36`.
 - **Reverse-Wipe Fade Continuity:** Completed demo waves move into `demoHistory` (capped at `2` historical waves) and fade progressively from start point to end point (`eraseProgress` driven smoothly by frame `dt`), continuing seamlessly even during the `600 ms` pause between consecutive waves (`animatePause`).
+

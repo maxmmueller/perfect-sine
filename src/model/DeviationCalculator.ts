@@ -8,6 +8,49 @@ import { TiltDetector } from './TiltDetector';
  * precision-weighted scores where accuracy is weighted 5x stronger than period count.
  */
 export class DeviationCalculator {
+  public static readonly REFERENCE_AMPLITUDE_PX = 40;
+  public static readonly REFERENCE_PERIOD_PX = 200;
+  public static readonly MIN_SCALE_MULTIPLIER = 0.25;
+  public static readonly MAX_SCALE_MULTIPLIER = 2.0;
+
+  /**
+   * Computes a spatial size multiplier for one fitted wave period using the geometric mean
+   * of amplitude and wavelength normalized to a canonical 40px × 200px wave (multiplier = 1.0).
+   * Prevents tiny single-period strokes from matching the score of large sweeping waves.
+   */
+  public static calculateScaleMultiplier(fit: FittedSine): number {
+    const safeAmplitude = Math.max(1, Math.abs(fit.amplitude));
+    const safePeriod = Math.max(1, fit.period);
+    const characteristicSize = Math.sqrt(safeAmplitude * safePeriod);
+    const referenceSize = Math.sqrt(
+      this.REFERENCE_AMPLITUDE_PX * this.REFERENCE_PERIOD_PX
+    );
+    const rawScale = characteristicSize / referenceSize;
+    const clamped = Math.max(
+      this.MIN_SCALE_MULTIPLIER,
+      Math.min(this.MAX_SCALE_MULTIPLIER, rawScale)
+    );
+    return Math.round(clamped * 1000) / 1000;
+  }
+
+  /**
+   * Computes the final precision-, length-, and spatial-scale-weighted score.
+   * Score = baseScoreScale * (accuracy / 100)^2.5 * sqrt(cycles) * scaleMultiplier
+   */
+  public static calculateFinalScore(
+    accuracy: number,
+    fit: FittedSine,
+    baseScoreScale: number = 1000
+  ): { score: number; scaleMultiplier: number } {
+    const normalizedAccuracy = Math.max(0, Math.min(100, accuracy)) / 100;
+    const cycleMultiplier = Math.sqrt(Math.max(0.1, fit.fullCycles));
+    const scaleMultiplier = this.calculateScaleMultiplier(fit);
+    const score = Math.round(
+      baseScoreScale * Math.pow(normalizedAccuracy, 2.5) * cycleMultiplier * scaleMultiplier
+    );
+    return { score, scaleMultiplier };
+  }
+
   /**
    * Calculates the perpendicular orthogonal distance from point (u, v) in baseline-aligned coordinates
    * to the reference sine curve at the corresponding cycle progression u.
@@ -103,6 +146,7 @@ export class DeviationCalculator {
         rmse: 0,
         accuracy: 0,
         score: 0,
+        scaleMultiplier: 0,
       };
     }
 
@@ -142,11 +186,9 @@ export class DeviationCalculator {
     const scoreNorm = 0.65 * rawAccuracy + 0.35 * fit.r2;
     const accuracy = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
 
-    // Accuracy weighted 5x stronger than cycle count:
-    // Score = baseScoreScale * (accuracy / 100)^2.5 * sqrt(cycles)
-    const normalizedAccuracy = accuracy / 100;
-    const cycleMultiplier = Math.sqrt(Math.max(0.1, fit.fullCycles));
-    const score = Math.round(baseScoreScale * Math.pow(normalizedAccuracy, 2.5) * cycleMultiplier);
+    // Accuracy weighted 5x stronger than cycle count, scaled by spatial wave size:
+    // Score = baseScoreScale * (accuracy / 100)^2.5 * sqrt(cycles) * scaleMultiplier
+    const { score, scaleMultiplier } = this.calculateFinalScore(accuracy, fit, baseScoreScale);
 
     return {
       fittedSine: fit,
@@ -156,6 +198,7 @@ export class DeviationCalculator {
       rmse,
       accuracy,
       score,
+      scaleMultiplier,
     };
   }
 }

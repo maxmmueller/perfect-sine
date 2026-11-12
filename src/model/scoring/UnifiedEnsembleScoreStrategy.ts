@@ -56,6 +56,7 @@ export class UnifiedEnsembleScoreStrategy implements IScoreStrategy {
         rmse: 0,
         accuracy: 0,
         score: 0,
+        scaleMultiplier: 0,
       };
     }
 
@@ -91,6 +92,7 @@ export class UnifiedEnsembleScoreStrategy implements IScoreStrategy {
       rmse: evalL2.rmse,
       accuracy: weightedAccuracy,
       score: weightedScore,
+      scaleMultiplier: evalL2.scaleMultiplier,
     };
   }
 }

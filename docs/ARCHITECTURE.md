@@ -195,6 +195,7 @@ classDiagram
         +number rmse
         +number accuracy
         +number score
+        +number scaleMultiplier
     }
 
     class TiltDetector {
@@ -223,6 +224,12 @@ classDiagram
     }
 
     class DeviationCalculator {
+        +number REFERENCE_AMPLITUDE_PX$
+        +number REFERENCE_PERIOD_PX$
+        +number MIN_SCALE_MULTIPLIER$
+        +number MAX_SCALE_MULTIPLIER$
+        +calculateScaleMultiplier(fit)$ number
+        +calculateFinalScore(accuracy, fit, baseScoreScale)$ ScoreResult
         +calculateOrthogonalDistance(u, v, fit)$ number
         +mapDistanceToColor(distance, maxTolerance)$ ColorMapping
         +evaluate(points, fit, maxTolerance, baseScoreScale)$ StrokeEvaluation
