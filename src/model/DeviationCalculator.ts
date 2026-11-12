@@ -1,36 +1,123 @@
 import { Point, FittedSine, PointDeviation, StrokeEvaluation } from './types';
 import { TiltDetector } from './TiltDetector';
 
+export interface StrokeMetricsAnalysis {
+  readonly effectiveTolerance: number;
+  readonly aligned: readonly Point[];
+  readonly deviations: readonly PointDeviation[];
+  readonly meanDeviation: number;
+  readonly maxDeviation: number;
+  readonly rmse: number;
+}
+
 /**
  * DeviationCalculator computes synchronous point-wise orthogonal distance deviations from drawn strokes
  * to the fitted reference sine curve, maps deviations into an HSL color gradient
  * (120° Green -> 60° Yellow -> 0° Red), and calculates intrinsic accuracy (0-100%) as well as
- * precision-weighted scores where accuracy is weighted 5x stronger than period count.
+ * precision-weighted scores scaled by both period count and spatial wave size.
  */
 export class DeviationCalculator {
   public static readonly REFERENCE_AMPLITUDE_PX = 40;
   public static readonly REFERENCE_PERIOD_PX = 200;
-  public static readonly MIN_SCALE_MULTIPLIER = 0.25;
-  public static readonly MAX_SCALE_MULTIPLIER = 2.0;
+  public static readonly MIN_SCALE_MULTIPLIER = 0.2;
+  public static readonly MAX_SCALE_MULTIPLIER = 2.5;
+  public static readonly MIN_TOLERANCE_FACTOR = 0.55;
+  public static readonly MAX_TOLERANCE_FACTOR = 1.85;
 
-  /**
-   * Computes a spatial size multiplier for one fitted wave period using the geometric mean
-   * of amplitude and wavelength normalized to a canonical 40px × 200px wave (multiplier = 1.0).
-   * Prevents tiny single-period strokes from matching the score of large sweeping waves.
-   */
-  public static calculateScaleMultiplier(fit: FittedSine): number {
+  private static computeRawSpatialRatio(fit: FittedSine): number {
     const safeAmplitude = Math.max(1, Math.abs(fit.amplitude));
     const safePeriod = Math.max(1, fit.period);
     const characteristicSize = Math.sqrt(safeAmplitude * safePeriod);
     const referenceSize = Math.sqrt(
       this.REFERENCE_AMPLITUDE_PX * this.REFERENCE_PERIOD_PX
     );
-    const rawScale = characteristicSize / referenceSize;
+    return characteristicSize / referenceSize;
+  }
+
+  /**
+   * Computes a spatial size multiplier for one fitted wave period using the geometric mean
+   * of amplitude and wavelength normalized to a canonical 40px × 200px wave (multiplier = 1.0).
+   * Superlinear exponent (1.35) strongly separates tiny wrist wiggles from sweeping canvas waves.
+   */
+  public static calculateScaleMultiplier(fit: FittedSine): number {
+    const rawScale = Math.pow(this.computeRawSpatialRatio(fit), 1.35);
     const clamped = Math.max(
       this.MIN_SCALE_MULTIPLIER,
       Math.min(this.MAX_SCALE_MULTIPLIER, rawScale)
     );
     return Math.round(clamped * 1000) / 1000;
+  }
+
+  /**
+   * Scales pixel error tolerance with wave size so tiny curves cannot exploit a fixed 30px
+   * buffer and large expressive curves are not over-penalized for natural freehand tremor.
+   */
+  public static calculateEffectiveTolerance(
+    fit: FittedSine,
+    baseTolerance: number = 30
+  ): number {
+    const safeBase = Math.max(1, baseTolerance);
+    const tolFactor = Math.max(
+      this.MIN_TOLERANCE_FACTOR,
+      Math.min(this.MAX_TOLERANCE_FACTOR, Math.pow(this.computeRawSpatialRatio(fit), 0.75))
+    );
+    return safeBase * tolFactor;
+  }
+
+  /**
+   * Computes synchronous point-wise orthogonal deviations, color mappings, and error stats
+   * using size-normalized tolerance. Shared across all scoring strategies.
+   */
+  public static analyzeStroke(
+    points: readonly Point[],
+    fit: FittedSine,
+    maxTolerance: number = 30
+  ): StrokeMetricsAnalysis {
+    const effectiveTolerance = this.calculateEffectiveTolerance(fit, maxTolerance);
+    if (points.length === 0) {
+      return {
+        effectiveTolerance,
+        aligned: [],
+        deviations: [],
+        meanDeviation: 0,
+        maxDeviation: 0,
+        rmse: 0,
+      };
+    }
+
+    const aligned = TiltDetector.transformPoints(points, fit.tilt);
+    const deviations: PointDeviation[] = [];
+    let sumDist = 0;
+    let sumSqDist = 0;
+    let maxDist = 0;
+
+    for (let i = 0; i < points.length; i++) {
+      const orig = points[i];
+      const al = aligned[i];
+      const dist = this.calculateOrthogonalDistance(al.x, al.y, fit);
+
+      if (dist > maxDist) maxDist = dist;
+      sumDist += dist;
+      sumSqDist += dist * dist;
+
+      const { hue, normalizedError, color } = this.mapDistanceToColor(dist, effectiveTolerance);
+      deviations.push({
+        point: orig,
+        distance: dist,
+        normalizedError,
+        hue,
+        color,
+      });
+    }
+
+    return {
+      effectiveTolerance,
+      aligned,
+      deviations,
+      meanDeviation: sumDist / points.length,
+      maxDeviation: maxDist,
+      rmse: Math.sqrt(sumSqDist / points.length),
+    };
   }
 
   /**
@@ -150,39 +237,11 @@ export class DeviationCalculator {
       };
     }
 
-    // Transform raw points to baseline-aligned frame
-    const aligned = TiltDetector.transformPoints(points, fit.tilt);
+    const { effectiveTolerance, deviations, meanDeviation, maxDeviation, rmse } =
+      this.analyzeStroke(points, fit, maxTolerance);
 
-    const deviations: PointDeviation[] = [];
-    let sumDist = 0;
-    let sumSqDist = 0;
-    let maxDist = 0;
-
-    for (let i = 0; i < points.length; i++) {
-      const orig = points[i];
-      const al = aligned[i];
-      const dist = this.calculateOrthogonalDistance(al.x, al.y, fit);
-
-      if (dist > maxDist) maxDist = dist;
-      sumDist += dist;
-      sumSqDist += dist * dist;
-
-      const { hue, normalizedError, color } = this.mapDistanceToColor(dist, maxTolerance);
-
-      deviations.push({
-        point: orig,
-        distance: dist,
-        normalizedError,
-        hue,
-        color,
-      });
-    }
-
-    const meanDeviation = sumDist / points.length;
-    const rmse = Math.sqrt(sumSqDist / points.length);
-
-    // Intrinsic accuracy (0 - 100%) based on RMSE error and R² fit quality
-    const rawAccuracy = Math.max(0, 1 - rmse / maxTolerance);
+    // Intrinsic accuracy (0 - 100%) based on scale-normalized RMSE error and R² fit quality
+    const rawAccuracy = Math.max(0, 1 - rmse / effectiveTolerance);
     const scoreNorm = 0.65 * rawAccuracy + 0.35 * fit.r2;
     const accuracy = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
 
@@ -194,7 +253,7 @@ export class DeviationCalculator {
       fittedSine: fit,
       deviations,
       meanDeviation,
-      maxDeviation: maxDist,
+      maxDeviation,
       rmse,
       accuracy,
       score,

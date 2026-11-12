@@ -1,5 +1,4 @@
-import { Point, FittedSine, StrokeEvaluation, PointDeviation } from '../types';
-import { TiltDetector } from '../TiltDetector';
+import { Point, FittedSine, StrokeEvaluation } from '../types';
 import { DeviationCalculator } from '../DeviationCalculator';
 import { IScoreStrategy } from './IScoreStrategy';
 
@@ -33,48 +32,24 @@ export class HarmonicSymmetryScoreStrategy implements IScoreStrategy {
       };
     }
 
-    const aligned = TiltDetector.transformPoints(points, fit.tilt);
-    const deviations: PointDeviation[] = [];
+    const { effectiveTolerance, aligned, deviations, meanDeviation, maxDeviation, rmse } =
+      DeviationCalculator.analyzeStroke(points, fit, maxTolerance);
 
-    let sumDist = 0;
-    let sumSqDist = 0;
-    let maxDist = 0;
     let maxPositiveY = 0;
     let maxNegativeY = 0;
-
-    for (let i = 0; i < points.length; i++) {
-      const orig = points[i];
-      const al = aligned[i];
-      const dist = DeviationCalculator.calculateOrthogonalDistance(al.x, al.y, fit);
-
-      if (dist > maxDist) maxDist = dist;
-      sumDist += dist;
-      sumSqDist += dist * dist;
-
+    for (const al of aligned) {
       const yOffset = al.y - fit.offset;
       if (yOffset > maxPositiveY) maxPositiveY = yOffset;
       if (yOffset < maxNegativeY) maxNegativeY = yOffset;
-
-      const { hue, normalizedError, color } = DeviationCalculator.mapDistanceToColor(dist, maxTolerance);
-      deviations.push({
-        point: orig,
-        distance: dist,
-        normalizedError,
-        hue,
-        color,
-      });
     }
-
-    const meanDeviation = sumDist / points.length;
-    const rmse = Math.sqrt(sumSqDist / points.length);
 
     // Amplitude symmetry ratio: min(crest, trough) / max(crest, trough)
     const crest = Math.max(1, maxPositiveY);
     const trough = Math.max(1, Math.abs(maxNegativeY));
     const amplitudeSymmetry = Math.min(crest, trough) / Math.max(crest, trough);
 
-    // Orthogonal distance quality
-    const rawAccuracy = Math.max(0, 1 - rmse / maxTolerance);
+    // Scale-normalized orthogonal distance quality
+    const rawAccuracy = Math.max(0, 1 - rmse / effectiveTolerance);
 
     // Composite: 50% distance, 30% amplitude symmetry, 20% R²
     const scoreNorm = 0.5 * rawAccuracy + 0.3 * amplitudeSymmetry + 0.2 * fit.r2;
@@ -90,7 +65,7 @@ export class HarmonicSymmetryScoreStrategy implements IScoreStrategy {
       fittedSine: fit,
       deviations,
       meanDeviation,
-      maxDeviation: maxDist,
+      maxDeviation,
       rmse,
       accuracy,
       score,

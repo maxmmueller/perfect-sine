@@ -1,5 +1,4 @@
-import { Point, FittedSine, StrokeEvaluation, PointDeviation } from '../types';
-import { TiltDetector } from '../TiltDetector';
+import { Point, FittedSine, StrokeEvaluation } from '../types';
 import { DeviationCalculator } from '../DeviationCalculator';
 import { IScoreStrategy } from './IScoreStrategy';
 
@@ -33,37 +32,11 @@ export class AreaDeviationScoreStrategy implements IScoreStrategy {
       };
     }
 
-    const aligned = TiltDetector.transformPoints(points, fit.tilt);
-    const deviations: PointDeviation[] = [];
+    const { effectiveTolerance, deviations, meanDeviation, maxDeviation, rmse } =
+      DeviationCalculator.analyzeStroke(points, fit, maxTolerance);
 
-    let sumAbsDist = 0;
-    let sumSqDist = 0;
-    let maxDist = 0;
-
-    for (let i = 0; i < points.length; i++) {
-      const orig = points[i];
-      const al = aligned[i];
-      const dist = DeviationCalculator.calculateOrthogonalDistance(al.x, al.y, fit);
-
-      if (dist > maxDist) maxDist = dist;
-      sumAbsDist += dist;
-      sumSqDist += dist * dist;
-
-      const { hue, normalizedError, color } = DeviationCalculator.mapDistanceToColor(dist, maxTolerance);
-      deviations.push({
-        point: orig,
-        distance: dist,
-        normalizedError,
-        hue,
-        color,
-      });
-    }
-
-    const meanAbsDeviation = sumAbsDist / points.length;
-    const rmse = Math.sqrt(sumSqDist / points.length);
-
-    // L1 accuracy uses linear error penalty rather than quadratic penalty
-    const rawAccuracy = Math.max(0, 1 - meanAbsDeviation / maxTolerance);
+    // L1 accuracy uses linear scale-normalized error penalty rather than quadratic penalty
+    const rawAccuracy = Math.max(0, 1 - meanDeviation / effectiveTolerance);
     const scoreNorm = 0.7 * rawAccuracy + 0.3 * fit.r2;
     const accuracy = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
 
@@ -76,8 +49,8 @@ export class AreaDeviationScoreStrategy implements IScoreStrategy {
     return {
       fittedSine: fit,
       deviations,
-      meanDeviation: meanAbsDeviation,
-      maxDeviation: maxDist,
+      meanDeviation,
+      maxDeviation,
       rmse,
       accuracy,
       score,
