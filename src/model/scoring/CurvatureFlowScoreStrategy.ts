@@ -29,6 +29,7 @@ export class CurvatureFlowScoreStrategy implements IScoreStrategy {
         rmse: 0,
         accuracy: 0,
         score: 0,
+        scaleMultiplier: 0,
       };
     }
 
@@ -94,9 +95,11 @@ export class CurvatureFlowScoreStrategy implements IScoreStrategy {
     const scoreNorm = 0.5 * distAccuracy + 0.35 * meanCosineSim + 0.15 * fit.r2;
     const accuracy = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
 
-    const normalizedAccuracy = accuracy / 100;
-    const cycleMultiplier = Math.sqrt(Math.max(0.1, fit.fullCycles));
-    const score = Math.round(baseScoreScale * Math.pow(normalizedAccuracy, 2.5) * cycleMultiplier);
+    const { score, scaleMultiplier } = DeviationCalculator.calculateFinalScore(
+      accuracy,
+      fit,
+      baseScoreScale
+    );
 
     return {
       fittedSine: fit,
@@ -106,6 +109,7 @@ export class CurvatureFlowScoreStrategy implements IScoreStrategy {
       rmse,
       accuracy,
       score,
+      scaleMultiplier,
     };
   }
 }

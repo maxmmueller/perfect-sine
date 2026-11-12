@@ -29,6 +29,7 @@ export class HarmonicSymmetryScoreStrategy implements IScoreStrategy {
         rmse: 0,
         accuracy: 0,
         score: 0,
+        scaleMultiplier: 0,
       };
     }
 
@@ -79,9 +80,11 @@ export class HarmonicSymmetryScoreStrategy implements IScoreStrategy {
     const scoreNorm = 0.5 * rawAccuracy + 0.3 * amplitudeSymmetry + 0.2 * fit.r2;
     const accuracy = Math.round(Math.max(0, Math.min(100, scoreNorm * 100)));
 
-    const normalizedAccuracy = accuracy / 100;
-    const cycleMultiplier = Math.sqrt(Math.max(0.1, fit.fullCycles));
-    const score = Math.round(baseScoreScale * Math.pow(normalizedAccuracy, 2.5) * cycleMultiplier);
+    const { score, scaleMultiplier } = DeviationCalculator.calculateFinalScore(
+      accuracy,
+      fit,
+      baseScoreScale
+    );
 
     return {
       fittedSine: fit,
@@ -91,6 +94,7 @@ export class HarmonicSymmetryScoreStrategy implements IScoreStrategy {
       rmse,
       accuracy,
       score,
+      scaleMultiplier,
     };
   }
 }
