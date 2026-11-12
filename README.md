@@ -40,3 +40,9 @@ The share button and all shortcuts stay unavailable on idle, during drawing and
 after a single-point click. A finished drawing enables sharing; reset, demo mode,
 a new drawing and reload disable it again until another drawing is completed.
 Session history is retained internally and does not unlock or populate sharing.
+
+## Drawing input
+
+Only the first primary contact controls a drawing. Additional fingers cannot add
+points, finish the stroke, or take over after the drawing finger is lifted.
+Pointer ownership regression tests cover cancellation, capture loss, and reset.

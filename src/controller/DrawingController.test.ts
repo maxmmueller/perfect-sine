@@ -51,12 +51,15 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     onReset = vi.fn();
   });
 
-  const createPointerEvent = (type: string, clientX: number, clientY: number, pointerId: number = 1): PointerEvent => {
+  const createPointerEvent = (type: string, clientX: number, clientY: number, pointerId: number = 1, overrides: Partial<PointerEvent> = {}): PointerEvent => {
     return {
       type,
       clientX,
       clientY,
       pointerId,
+      isPrimary: true,
+      pointerType: 'mouse',
+      ...overrides,
     } as unknown as PointerEvent;
   };
 
@@ -83,6 +86,130 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
     controller.handlePointerMove(createPointerEvent('pointermove', 60, 110));
 
     expect(strokeBuffer.getLength()).toBe(3);
+  });
+
+  describe('single-pointer ownership', () => {
+    const touch = (type: string, x: number, y: number, id: number, primary = true) =>
+      createPointerEvent(type, x, y, id, { pointerType: 'touch', isPrimary: primary });
+    const dispatch = (type: string, event: PointerEvent) => {
+      const listener = vi.mocked(mockCanvas.addEventListener).mock.calls.find(call => call[0] === type)?.[1];
+      expect(listener).toBeTypeOf('function');
+      (listener as EventListener)(event);
+    };
+
+    it('records only the first finger while other contacts move over the canvas', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      controller.handlePointerDown(touch('pointerdown', 50, 100, 1));
+      controller.handlePointerDown(touch('pointerdown', 700, 500, 2, false));
+      controller.handlePointerMove(touch('pointermove', 60, 110, 1));
+      controller.handlePointerMove(touch('pointermove', 710, 510, 2, false));
+      controller.handlePointerMove(touch('pointermove', 70, 120, 1));
+      expect(strokeBuffer.getPoints().map(({ x, y }) => ({ x, y }))).toEqual([
+        { x: 50, y: 100 }, { x: 60, y: 110 }, { x: 70, y: 120 },
+      ]);
+      expect(mockCanvas.setPointerCapture).toHaveBeenCalledTimes(1);
+      expect(mockCanvas.setPointerCapture).toHaveBeenCalledWith(1);
+    });
+
+    it.each(['pointerup', 'pointercancel', 'lostpointercapture'])(
+      'ignores another finger’s %s and finishes only when the owner ends', type => {
+        const completed = vi.fn();
+        const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, { onStrokeComplete: completed });
+        controller.handlePointerDown(touch('pointerdown', 50, 100, 1));
+        controller.handlePointerDown(touch('pointerdown', 700, 500, 2, false));
+        dispatch(type, touch(type, 710, 510, 2, false));
+        expect(stateMachine.getState()).toBe('DRAWING');
+        expect(completed).not.toHaveBeenCalled();
+        expect(mockCanvas.releasePointerCapture).not.toHaveBeenCalled();
+        controller.handlePointerMove(touch('pointermove', 60, 110, 1));
+        controller.handlePointerUp(touch('pointerup', 60, 110, 1));
+        expect(stateMachine.getState()).toBe('LOCKED');
+        expect(completed).toHaveBeenCalledTimes(1);
+        expect(mockCanvas.releasePointerCapture).toHaveBeenCalledWith(1);
+      }
+    );
+
+    it.each(['pointerup', 'pointercancel', 'lostpointercapture'])(
+      'releases ownership on the owner’s %s without transferring to remaining fingers', type => {
+        const completed = vi.fn();
+        const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, { onStrokeComplete: completed });
+        controller.handlePointerDown(touch('pointerdown', 50, 100, 1));
+        controller.handlePointerMove(touch('pointermove', 60, 110, 1));
+        controller.handlePointerDown(touch('pointerdown', 700, 500, 2, false));
+        dispatch(type, touch(type, 60, 110, 1));
+        const original = controller.getLastDrawnStroke();
+        controller.handlePointerMove(touch('pointermove', 710, 510, 2, false));
+        controller.handlePointerDown(touch('pointerdown', 720, 520, 3, false));
+        controller.handlePointerUp(touch('pointerup', 710, 510, 2, false));
+        expect(stateMachine.getState()).toBe('LOCKED');
+        expect(controller.getLastDrawnStroke()).toBe(original);
+        expect(completed).toHaveBeenCalledTimes(1);
+        controller.handlePointerDown(touch('pointerdown', 80, 140, 4));
+        expect(stateMachine.getState()).toBe('DRAWING');
+        expect(strokeBuffer.getLength()).toBe(1);
+        expect(mockCanvas.setPointerCapture).toHaveBeenLastCalledWith(4);
+      }
+    );
+
+    it('does not let a non-primary finger interrupt the demo or start drawing', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      controller.startDemo();
+      const demoState = stateMachine.getState();
+      controller.handlePointerDown(touch('pointerdown', 700, 500, 2, false));
+      expect(controller.isDemoPlaying()).toBe(true);
+      expect(stateMachine.getState()).toBe(demoState);
+      expect(mockCanvas.setPointerCapture).not.toHaveBeenCalled();
+      controller.stopDemo();
+    });
+
+    it('also ignores a second primary device while a finger owns the stroke', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      controller.handlePointerDown(touch('pointerdown', 50, 100, 1));
+      controller.handlePointerDown(createPointerEvent('pointerdown', 700, 500, 20, { pointerType: 'pen' }));
+      controller.handlePointerMove(createPointerEvent('pointermove', 710, 510, 20, { pointerType: 'pen' }));
+      controller.handlePointerUp(createPointerEvent('pointerup', 710, 510, 20, { pointerType: 'pen' }));
+      expect(stateMachine.getState()).toBe('DRAWING');
+      expect(strokeBuffer.getLength()).toBe(1);
+      expect(mockCanvas.setPointerCapture).toHaveBeenCalledTimes(1);
+    });
+
+    it('supports pointer ID zero and ignores the normal capture-loss event after release', () => {
+      const completed = vi.fn();
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer, { onStrokeComplete: completed });
+      controller.handlePointerDown(touch('pointerdown', 50, 100, 0));
+      controller.handlePointerMove(touch('pointermove', 60, 110, 0));
+      controller.handlePointerUp(touch('pointerup', 60, 110, 0));
+      dispatch('lostpointercapture', touch('lostpointercapture', 60, 110, 0));
+      expect(mockCanvas.releasePointerCapture).toHaveBeenCalledWith(0);
+      expect(completed).toHaveBeenCalledTimes(1);
+    });
+
+    it('clears ownership and capture on reset, ignoring late events from that contact', () => {
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      controller.handlePointerDown(touch('pointerdown', 50, 100, 1));
+      controller.reset();
+      controller.handlePointerMove(touch('pointermove', 60, 110, 1));
+      controller.handlePointerUp(touch('pointerup', 60, 110, 1));
+      expect(stateMachine.getState()).toBe('IDLE');
+      expect(strokeBuffer.getLength()).toBe(0);
+      expect(mockCanvas.releasePointerCapture).toHaveBeenCalledWith(1);
+      controller.handlePointerDown(touch('pointerdown', 80, 140, 2));
+      expect(stateMachine.getState()).toBe('DRAWING');
+      expect(strokeBuffer.getLength()).toBe(1);
+    });
+
+    it('retains single-pointer ownership when browser pointer capture APIs fail', () => {
+      vi.mocked(mockCanvas.setPointerCapture).mockImplementation(() => { throw new Error('Capture unavailable'); });
+      vi.mocked(mockCanvas.releasePointerCapture).mockImplementation(() => { throw new Error('Already released'); });
+      const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
+      controller.handlePointerDown(touch('pointerdown', 50, 100, 1));
+      controller.handlePointerMove(touch('pointermove', 700, 500, 2, false));
+      controller.handlePointerMove(touch('pointermove', 60, 110, 1));
+      controller.handlePointerUp(touch('pointerup', 60, 110, 1));
+      expect(controller.getLastDrawnStroke()?.points).toHaveLength(2);
+      controller.handlePointerDown(touch('pointerdown', 80, 140, 3));
+      expect(stateMachine.getState()).toBe('DRAWING');
+    });
   });
 
   it('should handle stroke too short upon pointer up', () => {
@@ -561,8 +688,12 @@ describe('DrawingController (Game Loop & Reset Transition)', () => {
 
       const controller = new DrawingController(mockCanvas, mockView, stateMachine, strokeBuffer);
 
-      // Start demo with runaway drift
+      // Fix geometry/profile so this tests runaway rendering, not random demo selection.
       controller.startDemo({
+        centerX: 400, centerY: 300,
+        amplitude: 45, wavelength: 180, cycles: 2, phase: 0, tiltAngle: 0,
+        profile: 'runaway',
+        rng: () => 0.5,
         runawayDrift: 32,
         runawayCenter: 0.6,
         speedPxPerSec: 500,

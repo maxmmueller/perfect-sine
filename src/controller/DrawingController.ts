@@ -35,6 +35,7 @@ export class DrawingController {
   private readonly scoreAnimator = new ScoreCalculationAnimator();
   private scoreStrategy: IScoreStrategy;
   private isPointerDown = false;
+  private activePointerId: number | null = null;
   private lastEvaluation: StrokeEvaluation | null = null;
   private allEvaluations: ScorerEvaluationItem[] = [];
   private liveEvaluation: StrokeEvaluation | null = null;
@@ -125,6 +126,7 @@ export class DrawingController {
       this.canvas.addEventListener('pointermove', this.handlePointerMove.bind(this));
       this.canvas.addEventListener('pointerup', this.handlePointerUp.bind(this));
       this.canvas.addEventListener('pointercancel', this.handlePointerUp.bind(this));
+      this.canvas.addEventListener('lostpointercapture', this.handlePointerUp.bind(this));
     }
   }
 
@@ -137,6 +139,9 @@ export class DrawingController {
   }
 
   public handlePointerDown(e: PointerEvent): void {
+    // Only the first primary contact may own a stroke; other fingers cannot reset it.
+    if (e.isPrimary === false || this.activePointerId !== null) return;
+
     // If bot demo is actively running, interrupt immediately and yield full control to user
     if (this.isDemoActive) {
       this.stopDemo();
@@ -154,13 +159,14 @@ export class DrawingController {
       return;
     }
 
+    this.activePointerId = e.pointerId;
+    this.isPointerDown = true;
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {
       // safe fallback if pointer capture is unsupported
     }
 
-    this.isPointerDown = true;
     this.stopCalculationAnimation();
     this.scoreAnimator.reset();
     this.strokeBuffer.clear();
@@ -175,6 +181,8 @@ export class DrawingController {
   }
 
   public handlePointerMove(e: PointerEvent): void {
+    if (e.pointerId !== this.activePointerId) return;
+
     if (this.stateMachine.getState() === 'LOCKED') {
       return;
     }
@@ -206,16 +214,8 @@ export class DrawingController {
   }
 
   public handlePointerUp(e: PointerEvent): void {
-    if (!this.isPointerDown) {
-      return;
-    }
-
-    this.isPointerDown = false;
-    try {
-      this.canvas.releasePointerCapture(e.pointerId);
-    } catch {
-      // safe fallback
-    }
+    if (!this.isPointerDown || e.pointerId !== this.activePointerId) return;
+    this.releaseActivePointer();
 
     if (this.stateMachine.getState() === 'DRAWING') {
       this.stateMachine.finishDrawing();
@@ -231,6 +231,19 @@ export class DrawingController {
       this.onStrokeComplete?.(this.lastDrawnStroke);
 
       this.render();
+    }
+  }
+
+  private releaseActivePointer(): void {
+    const pointerId = this.activePointerId;
+    // Clear ownership before release, which can synchronously emit lostpointercapture.
+    this.activePointerId = null;
+    this.isPointerDown = false;
+    if (pointerId === null) return;
+    try {
+      this.canvas.releasePointerCapture(pointerId);
+    } catch {
+      // The browser may already have released or cancelled the contact.
     }
   }
 
@@ -331,6 +344,7 @@ export class DrawingController {
   }
 
   public reset(): void {
+    this.releaseActivePointer();
     this.stopDemo();
     this.stopCalculationAnimation();
     this.scoreAnimator.reset();
@@ -348,7 +362,6 @@ export class DrawingController {
     this.coordinateFrame = null;
     this.currentDemoDeviations = [];
     this.demoHistory = [];
-    this.isPointerDown = false;
     this.canvas.style.cursor = 'default';
     this.onReset?.();
     this.render();
